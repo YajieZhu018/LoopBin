@@ -1,0 +1,2 @@
+prob_before_correction.npy is output by the model.
+In prob.npy, I manually correct the cluster to make 0 to 3 cluster and delete 0. 
