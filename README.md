@@ -1,5 +1,6 @@
 # LoopBin
 LoopBin, an unsupervised neural network adapted from the variational deep embedding (VADE) model to cluster chromatin loops based on genome interaction and protein binding profiles. It learns the genomic features captured by micro-C and Cut&amp;Tag data in a latent space and separates the latent representations in a clustering model. By applying the framework to different comparison settings, we can quantify loop types and understand the dynamic shifting in response to changes in cellular context. 
+![Alt text](image/model.png)
 
 ## Authors
 Yajie Zhu, Alexis Bel
