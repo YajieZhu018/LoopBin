@@ -1,0 +1,20 @@
+name: loophigh
+channels:
+  - defaults
+  - conda-forge
+  - bioconda
+dependencies:
+  - cooler
+  - matplotlib
+  - pip
+  - plotly
+  - python=3.7.9
+  - scikit-learn
+  - ucsc-bigwigaverageoverbed
+  - pip:
+    - hyperopt
+    - kneed
+    - numpy
+    - scikit-image
+    - tensorflow==2.5.0
+    - tqdm
