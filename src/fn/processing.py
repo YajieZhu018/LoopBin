@@ -21,8 +21,8 @@ from tqdm import tqdm
 #  Setting variables
 
 # Part of the name for each proteine
-name_epi = ["_CTCF8K.bedgraph", "_H3K27ac8K.bedgraph",
-            "_H3K27me38K.bedgraph", "_SMC1A8K.bedgraph"]
+#name_epi = ["_CTCF8K.bedgraph", "_H3K27ac8K.bedgraph",
+#            "_H3K27me38K.bedgraph", "_SMC1A8K.bedgraph"]
 
 
 def read_file(data_file):
@@ -108,7 +108,7 @@ def create_list_epi(file_epi, epigenetics_path):
     for chrom in chromosome:
         new_sample_name[chrom] = []
         for name in file_epi:
-            new_sample_name[chrom].append(epigenetics_path + "/" + chrom + name)
+            new_sample_name[chrom].append(epigenetics_path + "/" + chrom + "_" + name + "8K.bedgraph")
     return new_sample_name
 
 
@@ -261,7 +261,7 @@ def check_cpu_count(nbr_cpu):
     sys.exit(f"Machine has {available_cpu_count} cpu but you asked for {nbr_cpu} cpu")
 
 
-def input_creator_r(loop_file, cool_file, bedgraph, n_cpu):
+def input_creator_r(loop_file, cool_file, bedgraph, proteins, n_cpu):
     """
     Create input data from input files using multiprocessing.
 
@@ -269,6 +269,7 @@ def input_creator_r(loop_file, cool_file, bedgraph, n_cpu):
         loop_file (str): Path to the loop file.
         cool_file (str): Path to the .cool file.
         bedgraph (str): Path to the bedgraph files.
+        proteins (str): Names of the protein tracks, separated by comma.
         n_cpu (int): Number of CPUs to use for multiprocessing.
 
     Returns:
@@ -278,6 +279,8 @@ def input_creator_r(loop_file, cool_file, bedgraph, n_cpu):
         SystemExit: If the specified number of CPUs is not availabl
     """
     check_cpu_count(n_cpu)
+    # turn proteins into a list
+    name_epi = proteins.split(",")
     # a list of the file names epigenetics
     name_file = create_list_epi(name_epi, bedgraph)
     # Load file .mcool
@@ -302,7 +305,7 @@ def input_creator_r(loop_file, cool_file, bedgraph, n_cpu):
             start2, end2 = calcualte_submatrix_region_with_loop_midpoint(
                 midpoint2)
 
-            # Filtering the position
+            # Filtering the loops close to the diagnal
             ranges1 = [(start1, end1), (start1 - 8000, end1 - 8000),
                        (start1 + 8000, end1 + 8000), (start1 - 8000 * 2, end1 -
                                                       8000 * 2), (start1 + 8000
@@ -338,19 +341,20 @@ def input_creator_r(loop_file, cool_file, bedgraph, n_cpu):
         return output
 
 
-def mise_en_forme(data_filtered):
+def formatting(data_filtered, num_epi):
     """
     Format the filtered data.
 
     Args:
         data_filtered (list): List of filtered data.
+        num_epi (int): Number of epigenetic data
 
     Returns:
         tuple: Tuple containing the formatted epigenetic data,
         micro_c data, and numero data.
 
     """
-    epigenetic = np.ones((len(data_filtered), 32, 4))
+    epigenetic = np.ones((len(data_filtered), 32, num_epi))
     micro_c = np.ones((len(data_filtered), 256))
     numero = np.ones((len(data_filtered), 1), dtype='int')
 
@@ -435,18 +439,10 @@ def log_epi(sorted_epigenetic):
     Returns:
         numpy.ndarray: The logarithmically transformed epigenetic data.
     """
-    ctcf, hac, hme, smc1 = splitting(sorted_epigenetic, 2)
-    ctcf = np.reshape(ctcf, (len(sorted_epigenetic), 32))
-    hac = np.reshape(hac, (len(sorted_epigenetic), 32))
-    hme = np.reshape(hme, (len(sorted_epigenetic), 32))
-    smc1 = np.reshape(smc1, (len(sorted_epigenetic), 32))
-    log_ct = log_max_min_normalize(ctcf)
-    log_hac = log_max_min_normalize(hac)
-    log_hme = log_max_min_normalize(hme)
-    log_sm = log_max_min_normalize(smc1)
-    log_epigenetic = np.concatenate((log_ct, log_hac, log_hme, log_sm), axis=1)
+    epi_list = splitting(sorted_epigenetic,sorted_epigenetic.shape[2],2)
+    log_epi_list = map(lambda x: log_max_min_normalize(np.reshape(x, (len(x), 32))), epi_list)
+    log_epigenetic = np.concatenate(tuple(log_epi_list), axis=1)
     return log_epigenetic
-
 
 def log_microc(sorted_micro_c):
     """
@@ -463,19 +459,19 @@ def log_microc(sorted_micro_c):
     return log_micro_c
 
 
-def splitting(log_epigenetic, nbr_axe):
+def splitting(log_epigenetic, num_epi, nbr_axe):
     """
     Split the log_epigenetic array into four parts along axis 1.
 
     Args:
         log_epigenetic (ndarray): Input array to be split.
+        num_epi (int): the number of epigenetic data
+        nbr_axe (int): along which axis to split
 
     Returns:
-        tuple: A tuple containing the split arrays log_ct, log_hac, log_hme, and log_sm.
+        tuple: A tuple containing the split arrays.
     """
-    split_result = np.split(log_epigenetic, 4, axis=nbr_axe)
-    log_ct, log_hac, log_hme, log_sm, *_ = split_result
-    return log_ct, log_hac, log_hme, log_sm
+    return tuple(np.split(log_epigenetic, num_epi, axis=nbr_axe))
 
 
 def create_data(log_epigenetic, log_micro_c):
@@ -490,29 +486,22 @@ def create_data(log_epigenetic, log_micro_c):
     Returns:
         numpy.ndarray: The multichannel matrices combining different channels.
     """
-    mem_h3ac = np.empty((log_epigenetic.shape[0], 16, 16))
-    mem_h3me = np.empty((log_epigenetic.shape[0], 16, 16))
-    mem_smc1 = np.empty((log_epigenetic.shape[0], 16, 16))
-    mem_ctcf = np.empty((log_epigenetic.shape[0], 16, 16))
-    log_ct, log_hac, log_hme, log_sm = splitting(log_epigenetic, 1)
-    # give the epigenetics data as matrix
-    for nbr, i in enumerate(log_ct):
-        mem_ctcf[nbr] = np.outer(i[16:], i[:16])
-        mem_h3ac[nbr] = np.outer(log_hac[nbr][16:], log_hac[nbr][:16])
-        mem_h3me[nbr] = np.outer(log_hme[nbr][16:], log_hme[nbr][:16])
-        mem_smc1[nbr] = np.outer(log_sm[nbr][16:], log_sm[nbr][:16])
-
-    log_micro_c = np.reshape(log_micro_c, (log_ct.shape[0], 16, 16))
-    multichannel_matrix = np.zeros((log_ct.shape[0],  16, 16, 5),
-                                   dtype='float')
-    for i in range(log_ct.shape[0]):
-        multichannel_matrix[i] = merge_matrices_to_multichannel_image(
-            [log_micro_c[i], mem_ctcf[i], mem_h3ac[i], mem_h3me[i],
-             mem_smc1[i]])
+    # get the number of epic data
+    num_epi = log_epigenetic.shape[1] // 32
+    # split log epigenetic data (N, 32 * num_epi) into num_epic parts into a tuple
+    tuple_epi = splitting(log_epigenetic, num_epi, 1)
+    # outer product of each element in the tuple by multiply element[:,16:] by element[:,:16]
+    list_outer_epi = list(map(lambda x: x[:, 16:, np.newaxis] * x[:, np.newaxis, :16], tuple_epi))
+    # reshape microc
+    log_micro_c = np.reshape(log_micro_c, (log_epigenetic.shape[0], 16, 16, 1))
+    # merge list_outer_epi
+    outer_epi = np.stack(list_outer_epi, axis=-1)
+    # merge all the data
+    multichannel_matrix = np.concatenate((log_micro_c, outer_epi), axis=-1)
     return multichannel_matrix
 
 
-def process(loop_file, hic, bedgraph, nbr_cpu, folder):
+def process(loop_file, hic, bedgraph, proteins, nbr_cpu, folder):
     """
     Process loop file data, generate multichannel matrices,
     and save the processed data.
@@ -521,6 +510,7 @@ def process(loop_file, hic, bedgraph, nbr_cpu, folder):
         loop_file (str): Path to the loop file.
         hic (str): Path to the Hi-C data file.
         bedgraph (str): Path to the bedgraph file.
+        proteins (str): Names of the protein tracks, separated by ","
         nbr_cpu (int): Number of CPU cores to use for processing.
         folder (str): Path to the directory to save the processed data.
 
@@ -535,16 +525,16 @@ def process(loop_file, hic, bedgraph, nbr_cpu, folder):
         name = "loop_file_analysis.bedpe"
 
     nbr_cpu = nbr_cpu or 1
-
-    data_filtered = input_creator_r(loop_file, hic, bedgraph, int(nbr_cpu))
-    sorted_epigenetic, sorted_micro_c, sorted_numero = mise_en_forme(data_filtered)
+    data_filtered = input_creator_r(loop_file, hic, bedgraph, proteins, int(nbr_cpu))  # tuple containing micro-c and epi data filtering out loops close to the diagnal
+    num_epi = len(proteins.split(","))
+    sorted_epigenetic, sorted_micro_c, sorted_numero = formatting(data_filtered, num_epi)
 
     i = 0
-    while os.path.exists(dir_path):
-        i += 1
-        dir_path += str(i)
+    #while os.path.exists(dir_path):
+    #    i += 1
+    #    dir_path += str(i)
 
-    os.makedirs(dir_path)
+    #os.makedirs(dir_path)
 
     extract_line(loop_file, sorted_numero, name)
     save_raw(sorted_epigenetic, sorted_micro_c, sorted_numero, dir_path)
@@ -568,6 +558,8 @@ def process_all_groups(condstring, folder):
         log_data.npy of merged and in each condition
     """
     # get the number of loops in each condition
+    if condstring is None:
+        condstring = ""
     conds = condstring.split(",")
     list_raw_micro_c = [np.load(f'{folder}/{cond}/raw/raw_micro_c.npy') for cond in conds]
     list_raw_epig = [np.load(f'{folder}/{cond}/raw/raw_epigenetic.npy') for cond in conds]
@@ -578,7 +570,7 @@ def process_all_groups(condstring, folder):
     # log normalization
     log_micro_c = log_microc(merged_micro_c)
     log_epigenetic = log_epi(merged_epig)
-    # generate merged data 
+    # generate merged data
     merged = np.concatenate((log_micro_c, log_epigenetic), axis=1)
     np.save(f"{folder}/merged_log_data.npy", merged)
     print(f"Data \"merged_log_data.npy\" ready to use in {folder}")
@@ -590,4 +582,3 @@ def process_all_groups(condstring, folder):
         cond = conds[i]
         submatrix = submatrices[i]
         np.save(f'{folder}/{cond}/log_data.npy', submatrix)
-

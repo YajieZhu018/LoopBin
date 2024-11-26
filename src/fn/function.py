@@ -20,7 +20,7 @@ saving results and plots.
 - give_best(lat_space): Find the optimal number of clusters for K-Means.
 - set_kmeans(lat_space): Set up K-Means clustering with the optimal number
 of clusters.
-- set_gmm (lat_space): set up GMM clustering. 
+- set_gmm (lat_space): set up GMM clustering.
 """
 
 import sys
@@ -59,8 +59,8 @@ def verif_preprocess(arguments):
     if not check_bw_file_existence(preprocess_file):
         sys.exit(f"{preprocess_file} not found or not in BW format")
 
-    if name not in {"SMC1A", "CTCF", "H3K27ac", "H3K27me3"}:
-        sys.exit("Only four names available: SMC1A, CTCF, H3K27ac, H3K27me3")
+    #if name not in {"SMC1A", "CTCF", "H3K27ac", "H3K27me3"}:
+        #sys.exit("Only four names available: SMC1A, CTCF, H3K27ac, H3K27me3")
 
     verif_folder(database_folder)
     print(f"File {preprocess_file} detected. Bedgraph files chr?_{name}8K will\
@@ -222,25 +222,6 @@ def set_save_names(result_folder, base_folder=None):
     return save_name, save_name_2, save_name_plot
 
 
-#def give_best(lat_space):
-#    """
-#    Find the optimal number of clusters for K-Means.
-#
-#    Args:
-#        lat_space (ndarray): Latent space data.
-#
-#    Returns:
-#        int: Optimal number of clusters.
-#    """
-#    score = []
-#    for i in range(2, 25):
-#        kmeans = KMeans(n_clusters=i, random_state=0)
-#        kmeans.fit(lat_space)
-#        score.append(kmeans.inertia_)
-#    best_nbr = KneeLocator(range(1, len(score) + 1), score, curve='convex',
-#                           direction='decreasing')
-#    return best_nbr.knee
-
 def give_best(lat_space, method='kmeans'):
     """
     Find the optimal number of clusters for K-Means, AgglomerativeClustering, or DBSCAN.
@@ -290,60 +271,3 @@ def give_best(lat_space, method='kmeans'):
             return len(unique_labels[unique_labels != -1])
     else:
         raise ValueError("Invalid method. Supported methods are 'kmeans', 'gmm', 'agglomerative', or 'dbscan'.")
-
-def set_kmeans(lat_space):
-    """
-    Set up K-Means clustering with the optimal number of clusters.
-
-    Args:
-        lat_space (ndarray): Latent space data.
-
-    Returns:
-        KMeans: K-Means clustering model.
-    """
-    best_nbr = give_best(lat_space,method='kmeans')
-    kmeans = KMeans(n_clusters=best_nbr, random_state=0)
-    kmeans.fit(lat_space)
-    return kmeans
-
-def set_dbscan(lat_space):
-    """
-    Set up dbscan clustering with the optimal number of clusters.
-
-    Args:
-        lat_space (ndarray): Latent space data.
-
-    Returns:
-        dbscan: dbscan clustering model.
-    """
-    best_nbr = give_best(lat_space,method='dbscan')
-    min_samples = min(5, len(lat_space) // 10)
-    dbscan = DBSCAN(eps=0.5, min_samples=min_samples)
-    dbscan.fit(lat_space)
-    return dbscan
-
-
-def set_gmm (latent_space, covariance_type='full', random_state=0):
-    """
-    Cluster the latent space using Gaussian Mixture Models (GMM).
-    
-    Parameters:
-    - latent_space (array-like): The latent space obtained from the encoder of the VAE.
-    - n_components (int, optional): The number of mixture components. Default is 3.
-    - covariance_type (str, optional): The type of covariance parameters to use. 
-                                       Options are 'full', 'tied', 'diag', 'spherical'. Default is 'full'.
-    - random_state (int, RandomState instance or None, optional): Determines random number generation for 
-                                                                  initialization. Default is None.
-    
-    Returns:
-    - labels (array-like): Cluster labels for each data point in the latent space.
-    - gmm (GaussianMixture): Fitted GMM model.
-    """
-    # Initialize GMM
-    n_components = give_best(latent_space,method='gmm')
-    gmm = GaussianMixture(n_components=n_components, covariance_type=covariance_type, random_state=random_state)
-    # Fit GMM to the latent space
-    gmm.fit(latent_space)
-    # Predict cluster labels
-    #labels = gmm.predict(latent_space)
-    return gmm

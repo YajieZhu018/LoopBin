@@ -14,7 +14,7 @@
 #module load cuda cudnn
 #conda activate loophigh
 # merge input
-in_file=/usr/users/yzhu1/LoopBin/data/02_process/merged_log_data.npy
-out_file=/usr/users/yzhu1/LoopBin/trials/saved_models/pretrain_ae_merged_control_degron_rep1/
+in_file=/usr/users/yzhu1/LoopBin/data/02_process/control_rep1_H3K4me1/merged_log_data.npy
+out_file=/usr/users/yzhu1/LoopBin/trials/saved_models/pretrain_ae_control_rep1_H3K4me1/
 #python /usr/users/yzhu1/LoopBin/src/jobs/pretrain_ae.py $in_file $out_file
 python /usr/users/yzhu1/LoopBin/main.py -f 3 -d $in_file -u $out_file

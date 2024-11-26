@@ -1,11 +1,9 @@
 """
-This script provides a VAE model to clusterise chromatine loops.
-
-The script supports preprocessing, processing, clustering, and data generation.
-It uses command line arguments to determine the functionality to execute.
+LoopBin clusters chromatin loops with a VADE model.
+It provides functions for preprocessing, processing, pretraining, training, and clustering.
 
 Author: Yajie Zhu, Alexis Bel
-Date: 2024-07-13
+Date: 2024-09-07
 """
 import argparse
 import os
@@ -16,8 +14,6 @@ import matplotlib.pyplot as plt
 
 from src.fn import function
 from src.fn import processing
-from src.fn import init_data
-from src.fn import processing_pca
 from src.plot import plotting
 from src.model.ae import AE
 from src.model.vade_model import VADE
@@ -29,13 +25,12 @@ tf.keras.backend.set_floatx('float32')
 
 def parse_arguments():
     """
-    The `parse_arguments()` function is used to obtain command line arguments for a VAE model script.
-    :return: The function `parse_arguments()` returns the parsed arguments obtained from the command
-    line.
+    The `parse_arguments()` function is used to obtain command line arguments for a VADE model script.
+    Return: The function `parse_arguments()` returns the parsed arguments obtained from the command line.
     """
     """Obtain the arguments from the command line"""
     parser = argparse.ArgumentParser(
-        description="VAE model for direct usage",
+        description="VADE model for direct usage",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument(
@@ -51,9 +46,7 @@ process data and -u for the folder \n"
         "4. Train the VADE model and clustering, use with -num for the number of cluster \
             -d for the processed data, -pre for the pretrained model path, -u for the output folder, -ep for the epoch number \
             -if_pre for if pretrain \n"
-        "5. Predict the cluster with a trained model, use with -d for the processed data, -m for the model path, -u for the output folder\n"
-        "6. Generate 100 random samples. The sample generated are bad\n"
-        "7. Generate PCs of each datasets and combine as input for clustering, use with -o, -u",
+        "5. Predict the cluster with a trained model, use with -d for the processed data, -m for the model path, -u for the output folder",
         nargs="?",
         const=0
     )
@@ -69,7 +62,7 @@ will generate empty bedgraph",
     parser.add_argument(
         "-n",
         dest="name",
-        help="Name of the preprocessing feature. Only four available: CTCF, \
+        help="Name of the preprocessing feature. such as CTCF, \
 H3K27ac, H3K27me3, and SMC1A",
         nargs="?",
         const=0
@@ -81,6 +74,13 @@ H3K27ac, H3K27me3, and SMC1A",
 or where to put the bedgraph files.",
         nargs="?",
         const=None
+    )
+    parser.add_argument(
+        "-p",
+        dest="proteins",
+        help="Name of the protein tracks separated by comma",
+        nargs="?",
+        const="CTCF,H3K27ac,H3K27me3,SMC1A"
     )
     parser.add_argument(
         "-e",
@@ -175,6 +175,13 @@ clustering",
         nargs="?",
         const=None
     )
+    parser.add_argument(
+        "-k",
+        dest="clusters",
+        help="clusters to merge such as 2,3",
+        nargs="?",
+        const=None
+    )
     return parser.parse_args()
 
 def preprocess(args):
@@ -202,7 +209,7 @@ def process(args):
     cool_file = function.verif_process(args)
     function.verif_folder(args.bedgraph_folder)
     # Process
-    processing.process(args.list_loop, cool_file, args.bedgraph_folder,
+    processing.process(args.list_loop, cool_file, args.bedgraph_folder, args.proteins,
                        args.nbr_cpu, args.folder)
     sys.exit()
 
@@ -212,12 +219,72 @@ def process_all_groups(args):
     processing.process_all_groups(args.conditions, args.folder)
     sys.exit()
 
-def process_pca(args):
-    """Process the input to get first several PCs and combine into one vector"""
-    function.verif_folder(args.log_nornalized_input_folder)
-    # Process
-    processing_pca.process_pca(args.log_nornalized_input_folder, args.folder)
-    sys.exit()
+def cluster_data_inner_func(data, vade, loop_path, output_path, list_epic):
+    # predict the latent space of the data
+    z_mean,_,z = vade.encoder.predict(data)
+    # get the probability of the data; shape(orignal data shape, number of clusters)
+    prob = vade.gmm(z_mean)
+    # get the cluster of the data
+    cluster = np.argmax(prob,axis=1)
+    # remove non-existing cluster 
+    labels = np.unique(cluster)
+    # Convert labels to TensorFlow tensor
+    labels = tf.convert_to_tensor(np.unique(cluster), dtype=tf.int32)
+    # Use TensorFlow indexing
+    prob = tf.gather(prob, labels, axis=1)
+    # recalculate the prob so the sum = 1
+    prob = prob / tf.reduce_sum(prob, axis=1, keepdims=True)
+    cluster = np.argmax(prob,axis=1)
+    # save the probability
+    np.save(f'{output_path}/prob.npy', prob)
+    # save the cluster
+    np.save(f'{output_path}/labels.npy', cluster)
+    # add the label to the end of loops
+    loop_file = f'{loop_path}/loop_file_analysis.bedpe'
+    out_loop_file = f'{output_path}/labels_loops.bedpe'
+    # Read the TSV file
+    with open(loop_file, 'r') as f:
+        lines = f.readlines()
+    # Write the updated content to a new file
+    with open(out_loop_file, 'w') as f:
+        for i, line in enumerate(lines):
+            line = line.strip()  # Remove newline or extra spaces
+            new_line = f"{line}\t{cluster[i]}"  # Append the NumPy array value as a new column
+            f.write(new_line + '\n')  # Write the new line with the appended column
+    # get the reconstruction of the data
+    recon = vade.decoder(z_mean)
+    # save the reconstruction
+    np.save(f'{output_path}/recon.npy', recon)
+    # plot the average plot of each cluster
+    ori_micro_c = data[:,:256]
+    ori_epigenetic = data[:,256:]
+    x_data = processing.create_data(ori_epigenetic, ori_micro_c)
+    #x_data = np.load(input_data_path)
+    # get the reconstructed data
+    recon_micro_c = recon[:,:256]
+    recon_epigenetic = recon[:,256:]
+    x_recon = processing.create_data(recon_epigenetic, recon_micro_c)
+    dict_ori = function.sep_cluster(x_data, cluster)
+    dict_recon = function.sep_cluster(x_recon, cluster)
+    plotting.plot_cluster(dict_ori, cluster, dict_recon, output_path, list_epic)
+    plotting.plot_all_clusters(dict_ori, cluster, output_path, list_epic)
+    # pie plot of the cluster
+    plotting.plot_pie(dict_ori, cluster, output_path)
+    # plot the tsne of the latent space
+    plotting.plot_tsne(z_mean, cluster, output_path)
+
+# Custom callback to save every 200 epochs
+class SaveEveryNEpoch(tf.keras.callbacks.Callback):
+    def __init__(self, save_freq, save_path):
+        super(SaveEveryNEpoch, self).__init__()
+        self.save_freq = save_freq
+        self.save_path = save_path
+
+    def on_epoch_end(self, epoch, logs=None):
+        if (epoch + 1) % self.save_freq == 0:  # Save every `save_freq` epochs
+            save_filepath = os.path.join(self.save_path, f'model_epoch_{epoch + 1}/')
+            self.model.save(save_filepath)
+            print(f"Checkpoint saved: {save_filepath}")
 
 def pretrain_ae(args):
     """
@@ -258,6 +325,60 @@ def pretrain_ae(args):
     with open(f'{ol}/model_cluster.pkl', "wb") as file_pointer:
         pickle.dump(mcluster, file_pointer)
 
+def save_model_each_200_epochs(args):
+    """
+    Train the VADE model
+    """
+    # get input
+    n_clusters = int(args.cluster_number)
+    data_path = args.file
+    pretrain_model_path = args.pretrained_model
+    output_path = args.folder
+    list_epic = args.proteins.split(',')
+    # get True if pretrain model is used
+    if_pretrain = args.if_pretrain
+    epochs = int(args.epoch_number)
+    gmm_name = output_path.split('/')[-2]
+    # generate random seed
+    #seed = random.randint(1,100)
+    seed = 73
+    print(f'seed = {seed}')
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+    os.environ['TF_DETERMINISTIC_OPS'] = '1'
+    tf.config.threading.set_inter_op_parallelism_threads(8)
+    tf.config.threading.set_intra_op_parallelism_threads(8)
+    # load the data
+    X = np.load(data_path)
+    # no test data for unsupervised learning
+    X_train = X
+    # set vade model
+    d_input = X_train.shape[1]
+    vade = VADE(d_input,n_clusters)
+    vade(np.zeros((10, d_input)))
+    #vade.summary()
+    # load the pretrain model
+    if if_pretrain == 'True':
+        vade.load_pretrained_weights(pretrain_model_path,X_train,gmm_name)
+    ## Define a learning rate scheduler
+    decay_nn = 0.9
+    lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
+        lambda epoch: max(0.0002, 0.002 * decay_nn ** (epoch//10))  # Apply decay to the learning rate
+    )
+    # Directory for saving checkpoints
+    checkpoint_dir = f'{output_path}checkpoints'
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    # Instantiate the custom callback
+    save_callback = SaveEveryNEpoch(save_freq=200, save_path=checkpoint_dir)
+    # set ae model
+    adam_nn= tf.keras.optimizers.Adam(learning_rate=0.002,epsilon=1e-4)
+    vade.compile(optimizer=adam_nn)
+    history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler, save_callback],verbose=2)
+    # save the model
+    #vade.save(output_path)
+
+
 def train_vade(args):
     """
     Train the VADE model
@@ -267,19 +388,104 @@ def train_vade(args):
     data_path = args.file
     pretrain_model_path = args.pretrained_model
     output_path = args.folder
+    list_epic = args.proteins.split(',')
+    # get True if pretrain model is used
+    if_pretrain = args.if_pretrain
+    epochs = int(args.epoch_number)
+    gmm_name = output_path.split('/')[-2]
+    # generate random seed
+    #seed = random.randint(1,100)
+    seed = 73
+    print(f'seed = {seed}')
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+    os.environ['TF_DETERMINISTIC_OPS'] = '1'
+    tf.config.threading.set_inter_op_parallelism_threads(8)
+    tf.config.threading.set_intra_op_parallelism_threads(8)
+    # load the data
+    X = np.load(data_path)
+    # no test data for unsupervised learning
+    X_train = X
+    # set vade model
+    d_input = X_train.shape[1]
+    vade = VADE(d_input,n_clusters)
+    vade(np.zeros((10, d_input)))
+    #vade.summary()
+    # load the pretrain model
+    if if_pretrain == 'True':
+        vade.load_pretrained_weights(pretrain_model_path,X_train,gmm_name)
+    ## Define a learning rate scheduler
+    decay_nn = 0.9
+    lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
+        lambda epoch: max(0.0002, 0.002 * decay_nn ** (epoch//10))  # Apply decay to the learning rate
+    )
+    # set ae model
+    adam_nn= tf.keras.optimizers.Adam(learning_rate=0.002,epsilon=1e-4)
+    vade.compile(optimizer=adam_nn)
+    history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=2)
+    # save the model
+    vade.save(output_path)
+    # plot loss of the model
+    plotting.plot_train_loss(history, output_path)
+    # predict latent space of X
+    loop_path = os.path.dirname(data_path)
+    cluster_data_inner_func(X_train, vade, loop_path, output_path, list_epic)
+
+
+def cluster_data(args):
+    # get the data path, model path from argv
+    data_path = args.file
+    model_path = args.model
+    output_path = args.folder
+    list_epic = args.proteins.split(',')
+    data = np.load(data_path)
+    loop_path = os.path.dirname(data_path)
+    # load the model
+    model = tf.keras.models.load_model(model_path)
+    cluster_data_inner_func(data, model, loop_path, output_path, list_epic)
+
+
+def plot_result(x_data, reconstructed_data, lat_space, labels, plot_folder):
+    """Separate cluster data and plottet it"""
+    # Separate the data by cluster
+    dict_clust = function.sep_cluster(x_data, labels)
+    dict_rec = function.sep_cluster(reconstructed_data, labels)
+
+    # Plot the result
+    plotting.plot_pie(dict_clust, labels, plot_folder)
+    plotting.plot_cluster(dict_clust, labels, dict_rec, plot_folder)
+    plotting.plot_tsne(lat_space, labels, plot_folder)
+
+def train_vade_with_test(args):
+    """
+    Train the VADE model
+    """
+    # get input
+    n_clusters = int(args.cluster_number)
+    data_path = args.file
+    pretrain_model_path = args.pretrained_model
+    output_path = args.folder
+    list_epic = args.proteins.split(',')
     # get True if pretrain model is used
     if_pretrain = args.if_pretrain
     epochs = int(args.epoch_number)
     gmm_name = output_path.split('/')[-2]
     # set random seed to ensure the reproducibility
-    random.seed(0)
+    #random.seed(0)
     # load the data
     X = np.load(data_path)
-    # no test data for unsupervised learning
-    X_train = X
     # shuffle the data
-    np.random.seed(0)
-    np.random.shuffle(X)
+    #tf.random.set_seed(42)
+    X_shuffled = tf.random.shuffle(X)
+    # split the data into train and test with tensorflow
+    split_index = int(0.8 * X.shape[0])
+    X_train = X_shuffled[:split_index]
+    X_test = X_shuffled[split_index:]
+    # save the training and test data
+    os.makedirs(output_path, exist_ok=True)
+    np.save(f'{output_path}/X_train.npy', X_train)
+    np.save(f'{output_path}/X_test.npy', X_test)
     # set vade model
     d_input = X_train.shape[1]
     vade = VADE(d_input,n_clusters)
@@ -299,194 +505,268 @@ def train_vade(args):
     history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=1)
     # save the model
     vade.save(output_path)
-    # predict latent space of X_test
-    z_mean,_,_ = vade.encoder(X_train)
-    # get the probability of the data; shape(orignal data shape, number of clusters)
-    prob = vade.gmm(z_mean)
-    # get the cluster of the data
-    cluster = np.argmax(prob,axis=1)
-    # separate the cluster
-    dict_clust = function.sep_cluster(X_train, cluster)
-    # plot the tsne of the latent space
-    plotting.plot_tsne(z_mean, cluster, output_path)
-    # pie plot of the cluster
-    plotting.plot_pie(dict_clust, cluster, output_path)
-    # plot loss of the model
-    plotting.plot_train_loss(history, output_path)
+    # concatenate data and folder pairs into a list
+    data_folders = [(X_train, "train"), (X_test, "test")]
+    # create the subfolder
+    for _, folder in data_folders:
+        os.makedirs(f'{output_path}/{folder}', exist_ok=True)
+    # predict on both training and testing data
+    loop_path = os.path.dirname(data_path)
+    for data, folder in data_folders:
+        cluster_data_inner_func(data, vade, loop_path, f'{output_path}/{folder}', list_epic)
+        # plot loss of the model
+        plotting.plot_train_loss(history, f'{output_path}/{folder}/')
 
-def cluster_data(args):
-    # get the data path, model path from argv
+def calculate_generalizability(args):
+    """
+    determine the cluster number based on generalizability
+    """
+    from sklearn.model_selection import KFold
+    # get input
     data_path = args.file
-    model_path = args.model
+    pretrain_model_path = args.pretrained_model
     output_path = args.folder
-    #input_data_path = sys.argv[4]
+    list_epic = args.proteins.split(',')
+    # get True if pretrain model is used
+    if_pretrain = args.if_pretrain
+    epochs = int(args.epoch_number)
+    gmm_name = output_path.split('/')[-2]
+    # set random seed to ensure the reproducibility
+    X = np.load(data_path)
+    # set vade model
+    d_input = X.shape[1]
+    ## Define a learning rate scheduler
+    decay_nn = 0.9
+    lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
+        lambda epoch: max(0.0002, 0.002 * decay_nn ** (epoch//10))  # Apply decay to the learning rate
+    )
+    # initialize dic to store generalizability
+    dic_g = {'g':{}, 'g recon':{}, 'g kl':{}, 'train loss':{}, 'test loss':{}, 
+             'train recon loss':{}, 'test recon loss':{}, 'train kl loss':{}, 'test kl loss':{}, 'N cluster':{}}
+    for n_clusters in range(4,11):
+        # create n_cluster as key and empty list as value
+        dic_g['g'][n_clusters] = []
+        dic_g['g recon'][n_clusters] = []
+        dic_g['g kl'][n_clusters] = []
+        dic_g['train loss'][n_clusters] = []
+        dic_g['test loss'][n_clusters] = []
+        dic_g['train recon loss'][n_clusters] = []
+        dic_g['test recon loss'][n_clusters] = []
+        dic_g['train kl loss'][n_clusters] = []
+        dic_g['test kl loss'][n_clusters] = []
+        dic_g['N cluster'][n_clusters] = []
+        vade = VADE(d_input,n_clusters)
+        vade(np.zeros((10, d_input)))
+        #vade.summary()
+        # load the pretrain model
+        if if_pretrain == 'True':
+            vade.load_pretrained_weights(pretrain_model_path,X,gmm_name)
+        # set ae model
+        adam_nn= tf.keras.optimizers.Adam(learning_rate=0.002,epsilon=1e-4)
+        vade.compile(optimizer=adam_nn)
+
+        # Define cross-validation
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        # Initialize dict to store errors
+        dic_err = {'train':[], 'test':[], 'train_recon':[],'test_recon':[], 'train_kl':[],'test_kl':[], 'N_cluster':[]}
+        # Perform cross-validation
+        loss_fn = tf.keras.losses.BinaryCrossentropy()
+        for train_index, test_index in kf.split(X):
+            X_train, X_test = X[train_index], X[test_index]
+            history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=1)
+            for data, key in [(X_train,'train'), (X_test,'test')]:
+                z_mean, z_log_var, z = vade.encoder.predict(data)
+                reconstruction = vade.decoder(z)
+                reconstruction_loss = loss_fn(data, reconstruction)*d_input
+                # calculate vae loss according to the vae loss function
+                kl_loss = vade.calculate_kl_loss(z, z_mean, z_log_var)
+                loss = reconstruction_loss + kl_loss
+                #scalar_loss = np.mean(loss.numpy())
+                dic_err[key].append(loss.numpy().astype(float))
+                dic_err[f'{key}_recon'].append(reconstruction_loss.numpy().astype(float))
+                dic_err[f'{key}_kl'].append(kl_loss.numpy().astype(float))
+                if (key == 'test'):
+                    # get the real cluster number
+                    prob = vade.gmm(z_mean)
+                    # get the cluster of the data
+                    cluster = np.argmax(prob,axis=1)
+                    # save the real cluster number
+                    dic_err['N_cluster'].append(len(np.unique(cluster)))
+        # Calculate generalization as train error / test error for each fold
+        generalization = list(np.array(dic_err['train']) / np.array(dic_err['test']))
+        g_recon = list(np.array(dic_err['train_recon']) / np.array(dic_err['test_recon']))
+        g_kl = list(np.array(dic_err['train_kl']) / np.array(dic_err['test_kl']))
+        # add to dic_g
+        dic_g['g'][n_clusters].append(generalization)
+        dic_g['g recon'][n_clusters].append(g_recon)
+        dic_g['g kl'][n_clusters].append(g_kl)
+        dic_g['train loss'][n_clusters].append(dic_err['train'])
+        dic_g['test loss'][n_clusters].append(dic_err['test'])
+        dic_g['train recon loss'][n_clusters].append(dic_err['train_recon'])
+        dic_g['test recon loss'][n_clusters].append(dic_err['test_recon'])
+        dic_g['train kl loss'][n_clusters].append(dic_err['train_kl'])
+        dic_g['test kl loss'][n_clusters].append(dic_err['test_kl'])
+        dic_g['N cluster'][n_clusters].append(dic_err['N_cluster'])
+    # save g
+    import json
+    with open(f'{output_path}/generalizability.json', 'w') as json_file:
+        json.dump(dic_g, json_file, indent=4)
+    # plot g
+    # Prepare x-axis, y-axis means, and standard deviations
+    x = list(dic_g['g recon'].keys())  # Keys as x-axis labels
+    y_means = [np.mean(values) for values in dic_g['g recon'].values()]  # Mean of each list
+    y_stds = [np.std(values) for values in dic_g['g recon'].values()]    # Standard deviation of each list
+    # Plotting G
+    plt.figure(figsize=(8, 6))
+    plt.errorbar(x, y_means, yerr=y_stds, fmt='o', capsize=5, capthick=2, marker='s', linestyle='-', color='b')
+    plt.xlabel("N of clusters")
+    plt.ylabel("Generalizability of reconstruction loss")
+    plt.title("G with standard deviation of each cluster number")
+    plt.savefig(f'{output_path}/generalizability_reconstruction_loss.pdf')
+    plt.close()
+    plt.figure(figsize=(8, 6))
+    # plotting training and testing error
+    for subkey in [' ', ' recon ', ' kl ']:
+        dic_color = {f'train{subkey}loss': 'b', f'test{subkey}loss':'r'}
+        for err in [f'train{subkey}loss', f'test{subkey}loss']:
+            x = list(dic_g[err].keys())  # Keys as x-axis labels
+            y_means = [np.mean(values) for values in dic_g[err].values()]  # Mean of each list
+            y_stds = [np.std(values) for values in dic_g[err].values()]    # Standard deviation of each list
+            plt.errorbar(x, y_means, yerr=y_stds, fmt='o', capsize=5, capthick=2, marker='s', linestyle='-', color=dic_color[err], label=f'{err.capitalize()}')
+        plt.xlabel("N of clusters")
+        plt.ylabel(f'{subkey}loss')
+        plt.title("loss with standard deviation of each cluster number")
+        plt.legend()
+        subname=subkey.strip()
+        plt.savefig(f'{output_path}/{subname}Loss.pdf')
+        plt.close()
+    # plotting N cluster
+    plt.figure(figsize=(8, 6))
+    x = list(dic_g['N cluster'].keys())
+    y_values = list(dic_g['N cluster'].values())
+    y = [np.mean(values) for values in y_values]
+    plt.scatter(x, y, color='red', label='Average', zorder=3)
+    plt.plot(x, y, color='red', linestyle='--', zorder=2)
+    # Plot each individual data point
+    #for a, b in zip(x, y_values):
+    #    plt.scatter([a] * len(b), b, alpha=0.6, label='real cluster number', color='blue', zorder=1)
+    plt.xlabel("N of set clusters")
+    plt.ylabel("N of real clusters")
+    plt.title("real vs set cluster number")
+    plt.grid(True)
+    plt.legend()
+    plt.savefig(f'{output_path}/cluster_number.pdf')
+    plt.close()
+
+def calcualte_NMI(args):
+    from sklearn.metrics import normalized_mutual_info_score
+    import seaborn as sns
+    # args
+    data_path = args.file  # where the labels locate
+    output_path = args.folder
+    # Load label files
+    labels = [np.load(f'{data_path}_run{i}/labels.npy') for i in range(1, 6)]
+    # Initialize a 5x5 matrix for storing NMI values
+    nmi_matrix = np.zeros((5, 5))
+    # Calculate pairwise NMI
+    for i in range(5):
+        for j in range(5):
+            # Compute NMI between labels from run i and run j
+            nmi_matrix[i, j] = normalized_mutual_info_score(labels[i], labels[j])
+    # Plot the NMI matrix as a heatmap
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(nmi_matrix, annot=True, cmap='viridis', xticklabels=[f'Run {i+1}' for i in range(5)], yticklabels=[f'Run {i+1}' for i in range(5)])
+    plt.title("Pairwise Normalized Mutual Information (NMI) Between Runs")
+    plt.xlabel("Runs")
+    plt.ylabel("Runs")
+    plt.savefig(f'{output_path}/nmi.pdf')
+    plt.close()
+
+def merge_small_clusters(args):
+    # list of clusters to merge
+    small_clusters = args.clusters.split(',')
+    small_clusters = list(map(int,small_clusters))
+    data_path = args.file
+    output_path = args.folder
+    list_epic = args.proteins.split(',')
+    # create subfolders
+    new_folder = f'{output_path}/cluster_merged/'
+    if not os.path.exists(new_folder):
+        os.makedirs(new_folder)
+    # delete the small clusters
+    prob = np.load(f'{output_path}prob.npy')
+    mask = np.ones(prob.shape[1],dtype=bool)
+    mask[small_clusters] = False
+    new_prob = prob[:,mask]
+    # recalculate the prob so the sum = 1
+    new_prob = new_prob / new_prob.sum(axis=1, keepdims=True)
+    np.save(f'{new_folder}prob.npy', new_prob)
+    # get the labels
+    cluster = np.argmax(new_prob, axis=1)
+    np.save(f'{new_folder}labels.npy', cluster)
     # load the data
     data = np.load(data_path)
-    #np.random.seed(0)
-    #np.random.shuffle(data)
-    #data = data[:10000]
-    # load the model
-    vade = tf.keras.models.load_model(model_path)
-    # predict the latent space of the data
-    z_mean,_,z = vade.encoder(data)
-    # get the probability of the data; shape(orignal data shape, number of clusters)
-    prob = vade.gmm(z_mean)
-    # save the probability
-    np.save(f'{output_path}/prob.npy', prob)
-    # get the cluster of the data
-    cluster = np.argmax(prob,axis=1)
-    # save the cluster
-    np.save(f'{output_path}/labels.npy', cluster)
-    # get the reconstruction of the data
-    recon = vade.decoder(z_mean)
-    # save the reconstruction
-    np.save(f'{output_path}/recon.npy', recon)
     # plot the average plot of each cluster
     ori_micro_c = data[:,:256]
     ori_epigenetic = data[:,256:]
     x_data = processing.create_data(ori_epigenetic, ori_micro_c)
-    #x_data = np.load(input_data_path)
-    # get the reconstructed data
-    recon_micro_c = recon[:,:256]
-    recon_epigenetic = recon[:,256:]
-    x_recon = processing.create_data(recon_epigenetic, recon_micro_c)
     dict_ori = function.sep_cluster(x_data, cluster)
-    dict_recon = function.sep_cluster(x_recon, cluster)
-    plotting.plot_cluster(dict_ori, cluster, dict_recon, output_path)
+    plotting.plot_all_clusters(dict_ori, cluster, new_folder, list_epic)
+    # pie plot of the cluster
+    plotting.plot_pie(dict_ori, cluster, new_folder)
+
+def find_consensu_cluster(args):
+    from sklearn.cluster import AgglomerativeClustering
+    from scipy.cluster.hierarchy import dendrogram, linkage
+    data_path = args.file
+    output_path = args.folder
+    list_epic = args.proteins.split(',')
+    model_path = '/usr/users/yzhu1/LoopBin/trials/saved_models/vade_8clusters_control_rep1_H3K27ac_H3K27me3_SMC1A_H3K4me1'
+    os.makedirs(output_path, exist_ok=True)
+    results = [np.load(f'{model_path}_run{i}/labels.npy') for i in range(1, 6)]
+    # Assuming `results` is a list of 5 arrays, each containing the cluster labels of one run
+    n_samples = len(results[0])
+    n_runs = len(results)
+    # Step 1: Create the co-occurrence matrix
+    co_occurrence_matrix = np.zeros((n_samples, n_samples))
+    # Vectorized calculation for the co-occurrence matrix
+    for result in results:
+        # Create an indicator matrix where each element is 1 if two samples share a cluster
+        indicator_matrix = (result[:, None] == result[None, :]).astype(float)
+        co_occurrence_matrix += indicator_matrix
+    # Normalize by the number of runs
+    co_occurrence_matrix /= n_runs
+    # Step 2: Apply hierarchical clustering on the co-occurrence matrix
+    # Define the final number of clusters (e.g., 6) or use a distance threshold
+    cluster = AgglomerativeClustering(
+        n_clusters=7, affinity='precomputed', linkage='average'
+        ).fit_predict(1 - co_occurrence_matrix)  # 1 - matrix as dissimilarity
+    # save final clusters
+    np.save(f'{output_path}consensus_cluster.npy', cluster)
+    # load the data
+    data = np.load(data_path)
+    # plot the average plot of each cluster
+    ori_micro_c = data[:,:256]
+    ori_epigenetic = data[:,256:]
+    x_data = processing.create_data(ori_epigenetic, ori_micro_c)
+    dict_ori = function.sep_cluster(x_data, cluster)
+    plotting.plot_all_clusters(dict_ori, cluster, output_path, list_epic)
     # pie plot of the cluster
     plotting.plot_pie(dict_ori, cluster, output_path)
-    # plot the tsne of the latent space
-    plotting.plot_tsne(z_mean, cluster, output_path)
-
-
-def plot_result(x_data, reconstructed_data, lat_space, labels, plot_folder):
-    """Separate cluster data and plottet it"""
-    # Separate the data by cluster
-    dict_clust = function.sep_cluster(x_data, labels)
-    dict_rec = function.sep_cluster(reconstructed_data, labels)
-
-    # Plot the result
-    plotting.plot_pie(dict_clust, labels, plot_folder)
-    plotting.plot_cluster(dict_clust, labels, dict_rec, plot_folder)
-    plotting.plot_tsne(lat_space, labels, plot_folder)
-
-
-def load_model(weight_folder):
-    """Load VAE model and cluster model"""
-    #current_script_path = os.path.abspath(__file__)
-    # Extract the directory path of the current script (parent directory)
-    #script_directory = os.path.dirname(current_script_path)
-    #weight_folder = os.path.join(script_directory, 'src','saved_model')
-    #set_random()
-
-    #vae_network = set_model(latent_size, 3, 0.00077,beta)
-    #vae_network = set_model(40, 3, 0.00077)
-    #vae_network = set_model(49, 2.9435442035310144e-08, 3, 0.0005081969815992698)
-    #vae_network = set_model(49, 3, 0.001) #0.0005081969815992698
-    # Load the model weights
-    #try:
-    #    vae_network.load_weights(f'{weight_folder}/my_TRUE_model_weights_clust.h5')
-    #except (FileNotFoundError, IOError) as exception:
-    #    sys.exit(f"Something went wrong when loading the weights of the\
-    #        model: {exception}")
-    try:
-        vae_network = tf.keras.models.load_model(f'{weight_folder}my_VAE_model')
-    except (FileNotFoundError, IOError) as exception:
-        sys.exit(f"Something went wrong when loading the\
-            model: {exception}")
-    #Load the cluster (such as kmeans) model
-    #try:
-    #    with open(f"{weight_folder}/model_kmeans.pkl", "rb") as file_pointer:
-    #        model_cluster = pickle.load(file_pointer)
-    #except (FileNotFoundError, IOError) as exception:
-    #    sys.exit(f"Something went wrong when loading the cluster model:\
-    #        {exception}")
-
-    return vae_network      #, model_cluster
-
-
-def run_model(args):
-    """Run the model and clustering step"""
-    # Load model
-    vae_network = load_model(args.weight_folder)
-    # See if the file exist and load the data
-    function.verif_file(args.file, ".npy")
-    x_data = init_data.load_data(args.file)
-    # Define where to put the output
-    if args.folder is not None:
-        result_folder, plot_folder = function.set_result_folders(args.folder)
-    else:
-        result_folder, plot_folder = function.set_default_folders()
-
-    # Predict the latent space and reconstruction from the latent space
-    #_, _, lat_space = vae_network.encoder.predict([x_data,x_data])
-    lat_space = vae_network.encoder.predict([x_data,x_data])
-    reconstructed_data = vae_network.decoder.predict(lat_space)
-    function.save_latent(lat_space, os.path.join(result_folder,
-                                                 "latent_space.npy"))
-    # Predict the label of the latent space and save it
-    # fit the cluster model with latent space
-    kmeans = KMeans(n_clusters=4, random_state=0)
-    kmeans.fit(lat_space)
-    labels = kmeans.labels_
-    #model_cluster.fit(lat_space)
-    #labels = model_cluster.predict(lat_space)
-    with open(os.path.join(result_folder, "loops_labels.pkl"), "wb")as file_point:
-        pickle.dump(labels, file_point)
-    # Plot and save result
-    plot_result(x_data, reconstructed_data, lat_space, labels, plot_folder)
-    ## normalize lat space and plot
-    ## Normalize the data across features
-    #mean = np.mean(lat_space, axis=0, keepdims=True)
-    #std = np.std(lat_space, axis=0, keepdims=True)
-    #normalized_lat_space = (lat_space - mean) / std
-    #function.save_latent(normalized_lat_space, os.path.join(result_folder,
-    #                                             "normalized_latent_space.npy"))
-    ## define a new kmeans cluster
-    #new_model_cluster = KMeans(n_clusters=model_cluster.n_clusters, random_state=0)
-    #new_model_cluster.fit(normalized_lat_space)
-    #normalized_labels = new_model_cluster.predict(normalized_lat_space)
-    #with open(os.path.join(result_folder, "normalized_loops_labels.pkl"), "wb")as file_point:
-    #    pickle.dump(normalized_labels, file_point)
-    ##os.system(f'mkdir -p {plot_folder}/normalized_latent_space')
-    #plot_result(x_data, reconstructed_data, normalized_lat_space, normalized_labels, f'{plot_folder}/normalized_latent_space/')
-    sys.exit()
-
-
-def run_random(args):
-    """Generate 100 new data"""
-    # Load models
-    current_script_path = os.path.abspath(__file__)
-    vae_network, model_cluster = load_model()
-    # Generate random latent space point
-    array_shape = (100, 28)
-    script_directory = os.path.dirname(current_script_path)
-    weight_folder = os.path.join(script_directory, 'src','saved_model')
-    variances = np.load(f"{weight_folder}/var_data.npy")
-    lat_space = np.random.normal(loc=0, scale=variances, size=array_shape)
-
-    # Define where to put the output
-    if args.folder is not None:
-        result_folder, plot_folder = function.set_result_folders(args.folder)
-    else:
-        result_folder, plot_folder = function.set_default_folders()
-
-    # Create new data reconstruction from the latent space
-    reconstructed_data = vae_network.decoder.predict(lat_space)
-    function.save_latent(lat_space, os.path.join(result_folder,
-                                                 "latent_space.npy"))
-
-    # Predict the label of the latent space and save it
-    labels = model_cluster.predict(lat_space.astype('float32'))
-    with open(os.path.join(result_folder, "loops_labels"), "wb") as file_point:
-        pickle.dump(labels, file_point)
-
-    # Plot and save result
-    plot_result(reconstructed_data, reconstructed_data,
-                lat_space, labels, plot_folder)
-
-def test_print(args):
-    process_pca.test_hello()
+    # Optional: Plot the dendrogram
+    # Use linkage on the co-occurrence matrix to create the hierarchy
+    Z = linkage(co_occurrence_matrix, method='average')
+    # Sample a subset of data
+    sample_size = 5000  # Adjust based on your needs
+    indices = np.random.choice(len(Z), sample_size, replace=False)
+    sampled_Z = linkage(Z[indices], method='average')
+    plt.figure(figsize=(10, 7))
+    dendrogram(sampled_Z)
+    plt.title("Dendrogram of Consensus Clustering")
+    plt.xlabel("Sample index")
+    plt.ylabel("Co-occurrence distance")
+    plt.savefig(f'{output_path}consensus_clusters.pdf')
+    
 
 def main(args):
     """Main function"""
@@ -500,15 +780,23 @@ def main(args):
         pretrain_ae(args)
     elif args.flag == '4':
         train_vade(args)
+    elif args.flag == '4.1':
+        save_model_each_200_epochs(args)
     elif args.flag == '5':
         cluster_data(args)
-    elif args.flag == '7':
-        process_pca(args)
     elif args.flag == '6':
-        run_random(args)
+        train_vade_with_test(args)
+    elif args.flag == '7':
+        calculate_generalizability(args)
+    elif args.flag == '8':
+        calcualte_NMI(args)
+    elif args.flag == '9':
+        merge_small_clusters(args)
+    elif args.flag == '10':
+        find_consensu_cluster(args)
     else:
         sys.exit("Invalid flag.")
-
+    
 
 if __name__ == '__main__':
     # Get the arguments

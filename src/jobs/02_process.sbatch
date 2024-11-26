@@ -8,7 +8,7 @@
 #SBATCH --nodes=1
 #SBATCH --mem=48gb
 #SBATCH --time=8:00:00
-#SBATCH --array=0-1
+#SBATCH --array=0
 
 
 # Input
@@ -18,11 +18,11 @@ cond=${arr_cond[$i]}
 # remove _rep* to get the experiment name
 experiment=${cond%_rep*}
 il=/usr/users/yzhu1/LoopBin/data/01_preprocess/"$cond"/
-ol=/usr/users/yzhu1/LoopBin/data/02_process/"$cond"/
+ol=/usr/users/yzhu1/LoopBin/data/02_process/"$cond"_H3K4me1/
 loop=/usr/users/yzhu1/LoopBin/data/00_raw/"$experiment"_loops_labeled.bedpe
 cool=/usr/users/yzhu1/LoopBin/data/00_raw/DLD1_async_14h"$experiment"_matrix_1kb.mcool   #::/resolutions/8000
 
 #conda activate loophigh
 mkdir $ol
 # preprocess into input for training
-python /usr/users/yzhu1/LoopBin/main.py -f 2 -l $loop -c $cool -g $il -r 8 -u $ol
+python /usr/users/yzhu1/LoopBin/main.py -f 2 -l $loop -c $cool -g $il -p H3K4me1 -r 8 -u $ol  #CTCF,H3K27ac,H3K27me3,SMC1A,

@@ -1,6 +1,7 @@
 """
 An AE model to pretrain the VaDE model
 """
+#from statistics import covariance
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras.layers import Input, Dense, Lambda, Layer
@@ -8,12 +9,14 @@ from tensorflow.keras.models import Model, load_model
 from tensorflow.keras import backend as K
 from tensorflow.keras import initializers
 import numpy as np
+from tensorflow.keras.layers import GaussianNoise
 import math
 from sklearn import mixture
 from sklearn.cluster import KMeans
 import gzip
 from six.moves import cPickle
 import pickle
+import random
 
 
 # funtion to convert X to the default type float32
@@ -103,6 +106,9 @@ class VADE(keras.Model):
     
     def build_encoder(self):
         input = Input(shape=(self.original_size,))
+        # add noise for augmentation of the data
+        #noise_level = random.randint(0,4) * 0.01
+        #x = GaussianNoise(noise_level)(input)
         x = Dense(500, activation='relu')(input)
         x = Dense(500, activation='relu')(x)
         x = Dense(2000, activation='relu')(x)
@@ -142,7 +148,8 @@ class VADE(keras.Model):
         ## set the center to kmeans center
         #self.gmm.u_p.assign(tf.cast(kmeans.cluster_centers_.T, tf.float32))
         ## get the centers with GMM
-        g = mixture.GaussianMixture(n_components=self.n_centroid, covariance_type='diag', random_state=7)
+        covariance_type = 'diag'
+        g = mixture.GaussianMixture(n_components=self.n_centroid, covariance_type=covariance_type, init_params='kmeans', n_init=20, random_state=7)
         z = saved_model.encoder.predict(inputs)
         g.fit(z)
         # save the g in a folder
@@ -150,8 +157,12 @@ class VADE(keras.Model):
         with open(f'{gmm_folder}{gmm_name}.pkl','wb') as file_pointer:
             pickle.dump(g, file_pointer)
         # set the weights of the GMM
+        if covariance_type == 'spherical':
+            covariances = np.tile(g.covariances_[:, np.newaxis], z.shape[1])
+        else:
+            covariances = g.covariances_
         self.gmm.u_p.assign(tf.cast(g.means_.T, tf.float32))
-        self.gmm.lambda_p.assign(tf.cast(g.covariances_.T, tf.float32))
+        self.gmm.lambda_p.assign(tf.cast(covariances.T, tf.float32))
         print('Pretrained weights loaded')
         
         
@@ -174,7 +185,8 @@ class VADE(keras.Model):
         loss = 0.5*tf.reduce_sum(gamma_t*(tf.cast(latent_dim, tf.float32)*tf.math.log(math.pi*2)+tf.math.log(lambda_tensor3)+tf.exp(z_log_var_t)/lambda_tensor3+tf.square(z_mean_t-u_tensor3)/lambda_tensor3),axis=(1,2))\
         -0.5*tf.reduce_sum(z_log_var+1,axis=-1)\
         -tf.reduce_sum(tf.math.log(tf.tile(tf.expand_dims(self.gmm.theta_p,0),[batch_size,1]))*gamma,axis=-1)\
-        +tf.reduce_sum(tf.math.log(gamma)*gamma,axis=-1)
+        +tf.reduce_sum(tf.math.log(gamma)*gamma,axis=-1)  # shape: (batch_size,)
+        loss = tf.reduce_mean(loss) # average through batch size
         return loss
     
 
@@ -184,7 +196,9 @@ class VADE(keras.Model):
     
     @property
     def metrics(self):
-        return [self.total_loss_tracker]
+        return [self.total_loss_tracker,
+                self.reconstruction_loss_tracker,
+                self.kl_loss_tracker]
 
     @tf.function
     def train_step(self, data):
@@ -192,10 +206,15 @@ class VADE(keras.Model):
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder(data)
             reconstruction = self.decoder(z)
-            reconstruction_loss = loss_fn(data, reconstruction)
+            reconstruction_loss = loss_fn(data, reconstruction)*self.original_size
             # calculate vae loss according to the vae loss function
             kl_loss = self.calculate_kl_loss(z, z_mean, z_log_var)
-            loss = reconstruction_loss*self.original_size + kl_loss
+            loss = reconstruction_loss + kl_loss
+        ## Debugging prints
+        #tf.print("Reconstruction Loss:", reconstruction_loss)
+        #tf.print("KL Loss:", kl_loss)
+        #tf.print("Total Loss:", loss)
+        #print("Original Size Scaling:", self.original_size)
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         self.total_loss_tracker.update_state(loss)

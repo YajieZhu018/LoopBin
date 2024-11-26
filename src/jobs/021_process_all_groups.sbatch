@@ -12,8 +12,8 @@
 
 
 # Input
-conditions=control_rep1,degron_rep1
-ol=/usr/users/yzhu1/LoopBin/data/02_process/
+conditions=""  #control_rep1,degron_rep1
+ol=/usr/users/yzhu1/LoopBin/data/02_process/control_rep1_H3K4me1/
 
 #conda activate loophigh
 mkdir $ol

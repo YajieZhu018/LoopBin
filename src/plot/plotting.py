@@ -5,12 +5,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.manifold import TSNE
 import pandas as pd
-import plotly.express as px
+#import plotly.express as px
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from sklearn.metrics import silhouette_score
 from kneed import KneeLocator
 import os
+import seaborn as sns
 
 
 def plot_cluster_to_exam(x_image, x_rec,nbr):
@@ -76,21 +77,9 @@ def plot_loss(history, path):
     print("loss plotting")
     plt.clf()
     info = history
-    # plot the loss
-    #val_rep1 = [np.mean(i) for i in history.history["val_reconstruction_loss_rep1"] ]
-    #val_rep2 = [np.mean(i) for i in history.history["val_reconstruction_loss_rep2"] ]
-    #val_recons = [np.mean(i) for i in history.history["val_reconstruction_loss"]  ]
-    #val_kl = [np.mean(i) for i in history.history["val_kl_loss"]  ]
-    #history.history["val_reconstruction_loss_rep1"] = val_rep1
-    #history.history["val_reconstruction_loss_rep2"] = val_rep2
-    #history.history["val_kl_loss"] = val_kl
-    #history.history["val_reconstruction_loss"] = val_recons
-    #first_half = ['loss', 'reconstruction_loss', 'kl_loss', 'reconstruction_loss_rep1', 'reconstruction_loss_rep2']
-    #second_half = ['val_loss', 'val_reconstruction_loss', 'val_kl_loss', 'val_reconstruction_loss_rep1', 'val_reconstruction_loss_rep2']
 
-
-    first_half = ['loss','reconstruction_loss', 'kl_loss'] # 
-    second_half = ['val_loss', 'val_reconstruction_loss', 'val_kl_loss']  # 
+    first_half = ['loss','reconstruction_loss', 'kl_loss'] #
+    second_half = ['val_loss', 'val_reconstruction_loss', 'val_kl_loss']  #
 
     num_subplots = 3
     fig, axes = plt.subplots(num_subplots, 1, figsize=(8, 4*num_subplots))
@@ -125,6 +114,8 @@ def plot_train_loss(history,path):
     fig, axes = plt.subplots(num_subplots, 1, figsize=(8, 4*num_subplots))
     for i, training in enumerate(losses):
         ax = axes[i]
+        if training == 'kl_loss' or training == 'loss':
+            ax.set_yscale("log")
         ax.plot(history.history[training])
         ax.set_title(f'Model {training}')
         ax.set_ylabel(training)
@@ -136,19 +127,45 @@ def plot_train_loss(history,path):
     plt.savefig(f'{path}/loss.pdf')
     plt.close()
 
-# plot loss with cyclical annealing strategy
-#def plot_loss_new(history,epochs):
-#    # Plot the training and validation loss
-#    for key in ['loss', 'reconstruction_loss', 'kl_loss']:
-#        plt.plot(range(1, epochs+1), history[key], label='Training Loss')
-#        plt.plot(range(1, epochs+1), history['val_' + key], label='Validation Loss')
-#        plt.xlabel('Epochs')
-#        plt.ylabel(key)
-#        plt.title('Training and Validation Loss with Cyclical Annealing Beta')
-#        plt.legend()
-#        plt.savefig('../plot/' + key + '.pdf')
+def plot_tsne(lat_space, labels, save_dir):
+    # Set up directories for saving plots
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Seaborn style for better aesthetics
+    sns.set(style="whitegrid")
+    
+    # Loop over perplexity values for t-SNE
+    for nbr in [100]:
+        X_embedded = TSNE(
+            n_components=2, init='pca', random_state=0,
+            learning_rate="auto", perplexity=nbr, n_jobs=3
+        ).fit_transform(lat_space)
+        
+        # Create DataFrame for plotting
+        principalDf = pd.DataFrame(data=X_embedded, columns=['component_1', 'component_2'])
+        principalDf["label"] = labels.astype(str)
+        
+        # Save DataFrame to CSV
+        principalDf.to_csv(f"{save_dir}/tsne_{nbr}.csv", sep=',', index=False, encoding='utf-8')
+        
+        # Plot with Matplotlib
+        plt.figure(figsize=(8, 6))
+        scatter = sns.scatterplot(
+            data=principalDf, x="component_1", y="component_2",
+            hue="label", palette="viridis", s=60, edgecolor="k", alpha=0.7
+        )
+        plt.title(f"t-SNE with Perplexity={nbr}")
+        plt.xlabel("Component 1")
+        plt.ylabel("Component 2")
+        plt.legend(title="Labels", loc="best")
+        
+        # Save as PDF
+        pdf_path = f"{save_dir}/tsne_perplex{nbr}.pdf"
+        plt.savefig(pdf_path, format="pdf")
+        plt.close()
+        print(f"Saved t-SNE plot with perplexity {nbr} as PDF to {pdf_path}")
 
-def plot_tsne(lat_space, labels, save_name_plot):
+def plot_tsne_html(lat_space, labels, save_name_plot):
     if save_name_plot != None:
         if not os.path.exists(f"{save_name_plot}/tsne"):
             os.makedirs(f"{save_name_plot}/tsne")
@@ -170,6 +187,7 @@ def plot_tsne(lat_space, labels, save_name_plot):
         else:
             figa.write_html(f'tsne_{nbr}.html')
 
+
 def plot_pie( separated_arrays, labels,save_name_plot):
     pourcen = {}
     for i in np.unique(labels):
@@ -178,21 +196,23 @@ def plot_pie( separated_arrays, labels,save_name_plot):
     plt.savefig(f'{save_name_plot}/pie.pdf')
 
 
-def plot_cluster(separated_arrays, labels, separated_reconstruction, save_name_plot):
+def plot_cluster(separated_arrays, labels, separated_reconstruction, save_name_plot, list_epic):
     k = dict()
     rec = dict()
     vmin_loop = []
     vmax_loop = []
     for i in np.unique(labels):
         a = np.mean(separated_arrays[i], axis=0)
-        a_split = np.split(a, 5, axis=2)
+        # get channel number
+        num_channel = a.shape[2]
+        a_split = np.split(a, num_channel, axis=2)
         k[i] = a_split
         b = np.mean(separated_reconstruction[i], axis=0)
-        rec_split = np.split(b, 5, axis=2)
+        rec_split = np.split(b, num_channel, axis=2)
         rec[i] = rec_split
         vmin_sub = []
         vmax_sub = []
-        for j in range(5):
+        for j in range(num_channel):
             vmin_sub.append(np.min(a_split[j]))
             vmax_sub.append(np.max(a_split[j]))
 
@@ -200,28 +220,28 @@ def plot_cluster(separated_arrays, labels, separated_reconstruction, save_name_p
         vmax_loop.append(vmax_sub)
     vmin_1 =np.min(vmin_loop,axis=0)
     vmax_1=np.max(vmax_loop,axis=0)
-    titles = ["Micro-C", "CTCF", "H3K27ac", "H3K27me3", "SMC1A"]
+    titles = ["Micro-C"] + list_epic   #, "CTCF", "H3K27ac", "H3K27me3", "SMC1A"]
     for o in np.unique(labels):
         plt.clf()
-        plt.figure(figsize=(10, 5))
-        for i in range(5):
-            ax = plt.subplot(4, 5, i + 1)
+        plt.figure(figsize=(12, 5))
+        for i in range(num_channel):
+            ax = plt.subplot(4, num_channel, i + 1)
             plt.imshow(k[o][i], cmap="jet", vmin=vmin_1[i], vmax=vmax_1[i])
             plt.colorbar()
             plt.title(titles[i])  # Utilisation du titre correspondant à l'index i de la liste
             if i == 0:
                 ax.set_ylabel('Original data\n general scale',rotation=0,labelpad=35)
-            ax = plt.subplot(4, 5, i + 1 + 5)
+            ax = plt.subplot(4, num_channel, i + 1 + num_channel)
             plt.imshow(k[o][i], cmap="jet")
             plt.colorbar()
             if i == 0:
                 ax.set_ylabel('Original data\npersonnal scale',rotation=0,labelpad=35)
-            ax = plt.subplot(4, 5, i + 1 + 10)  # Affiche la troisième ligne de la matrice
+            ax = plt.subplot(4, num_channel, i + 1 + 2*num_channel)  # Affiche la troisième ligne de la matrice
             plt.imshow(rec[o][i], cmap="jet",vmin=vmin_1[i], vmax=vmax_1[i])
             plt.colorbar()
             if i == 0:
                 ax.set_ylabel('Reconstructed \ndata\ngeneral scale',rotation=0,labelpad=35)
-            ax = plt.subplot(4, 5, i + 1 + 15)  # Affiche la troisième ligne de la matrice
+            ax = plt.subplot(4, num_channel, i + 1 + 3*num_channel)  # Affiche la troisième ligne de la matrice
             plt.imshow(rec[o][i], cmap="jet")
             plt.colorbar()
             if i == 0:
@@ -234,3 +254,64 @@ def plot_cluster(separated_arrays, labels, separated_reconstruction, save_name_p
         plt.clf()
 
 
+def plot_all_clusters(separated_arrays, labels, out_folder, list_epic):
+    """
+    Average plot of each channel as column and each cluster as row
+    """
+    dict_clusters = {}
+    vmin_loop = []
+    vmax_loop = []
+    # loop through each cluster
+    for i in np.unique(labels):
+        # calcuate the average of the cluster
+        average_clusters = np.mean(separated_arrays[i], axis=0) # shape: (16,16,num_channel)
+        # get channel number
+        num_channel = average_clusters.shape[2]
+        # split the average cluster into each channel
+        dict_clusters[i] = np.split(average_clusters, num_channel, axis=2)  # list of num_channel of shape: (16,16)
+        # get the vmin and vmax of each channel
+        vmin_sub = []
+        vmax_sub = []
+        for j in range(num_channel):
+            vmin_sub.append(np.min(dict_clusters[i][j]))
+            vmax_sub.append(np.max(dict_clusters[i][j]))
+        vmin_loop.append(vmin_sub)
+        vmax_loop.append(vmax_sub)
+    # get final vmin and vmax
+    vmin_1 =np.min(vmin_loop,axis=0)
+    vmax_1=np.max(vmax_loop,axis=0)
+    channel_names = ["Micro-C"] + list_epic
+    # set a figure of num_cluster * num_channel
+    plt.clf()
+    num_cluster = len(np.unique(labels))
+    plt.figure(figsize=(1.5*num_channel, 0.5+1.5*num_cluster))
+    # loop through each cluster
+    import matplotlib.gridspec as gridspec
+
+    # Create a gridspec layout with an extra row for the color bar
+    gs = gridspec.GridSpec(num_cluster+1, num_channel, height_ratios=[1]*num_cluster + [0.1])
+    counter = 0
+    for o in np.unique(labels):
+        for i in range(num_channel):
+            ax = plt.subplot(gs[counter, i])
+            plt.imshow(dict_clusters[o][i], cmap="jet", vmin=vmin_1[i], vmax=vmax_1[i])
+            if counter == 0:
+                plt.title(channel_names[i])
+            if i == 0:
+                ax.set_ylabel(f'Cluster {o}', rotation=0, labelpad=35)
+        counter += 1
+    # Add a separate color bar for each column in the bottom row
+    for i in range(num_channel):
+        cbar_ax = plt.subplot(gs[num_cluster, i])  # This accesses the color bar row
+        cbar = plt.colorbar(plt.cm.ScalarMappable(cmap="jet", norm=plt.Normalize(vmin=vmin_1[i], vmax=vmax_1[i])),
+                 cax=cbar_ax, orientation='horizontal')
+        cbar.set_ticks([vmin_1[i], vmax_1[i]])
+        cbar.set_ticklabels([f"{vmin_1[i]:.2f}", f"{vmax_1[i]:.2f}"])
+        cbar.ax.tick_params(labelsize=8)
+
+    # Adjust the spacing between subplots
+    #plt.subplots_adjust(hspace=0.5, wspace=0.3)  # Adjust these values as necessary
+    plt.tight_layout()
+    # save the plot
+    plt.savefig(f'{out_folder}/all_clusters.pdf')
+    plt.clf()

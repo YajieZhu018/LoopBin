@@ -8,18 +8,18 @@
 #SBATCH --nodes=1
 #SBATCH --mem=48gb
 #SBATCH --time=24:00:00
-#SBATCH --array=0-3
+#SBATCH --array=4
 
 #conda activate loophigh
 # Input
 il=/usr/users/yzhu1/LoopBin/data/00_raw/
 arr_cond=(control degron)
 arr_rep=(rep1 rep1)
-arr_name=(CTCF SMC1A H3K27ac H3K27me3)
+arr_name=(CTCF SMC1A H3K27ac H3K27me3 H3K4me1)
 
 j="${SLURM_ARRAY_TASK_ID}"
-for i in 0 1
-do 
+for i in 0 #1
+do
     cond=${arr_cond["$i"]}
     rep=${arr_rep["$i"]}
     name=${arr_name["$j"]}
