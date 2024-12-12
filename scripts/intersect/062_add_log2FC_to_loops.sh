@@ -1,5 +1,6 @@
 #!/bin/bash
-il=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_7clusters_merged_control_degron_rep1/intersect/02_intersect/
+folder=$1
+il="$folder"intersect/02_intersect/
 degs_file=/usr/users/yzhu1/LoopBin/data/RNA-seq/GSE176285_DLD1_async_factory_gene_irnaseq_GRCh38_qval0.05n.csv
 pairs=("1 2" "3 4" "1 6" "2 6")
 cond=control

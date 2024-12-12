@@ -4,12 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from statannot import add_stat_annotation
-il = '/usr/users/yzhu1/LoopBin/trials/saved_models/vade_7clusters_merged_control_degron_rep1/unique/01_sorted/'
-ol =  '/usr/users/yzhu1/LoopBin/trials/saved_models/vade_7clusters_merged_control_degron_rep1/unique/02_plot/'
+import sys
+folder = sys.argv[1]
+il = f'{folder}unique/01_unique/'
+ol =  f'{folder}unique/02_plot/'
 conds = ['control', 'degron']
 dic_data = {}
 for cond in conds:
-    in_file = f'{il}{cond}_loops_labels_genes_log2FC.bed'
+    in_file = f'{il}{cond}_unique_loops_labels_log2FC.bedpe'
     # read into a dataframe
     df = pd.read_csv(in_file, sep='\t')
     # add cond
@@ -19,10 +21,16 @@ for cond in conds:
 # concatenate two df
 df = pd.concat([dic_data['control'], dic_data['degron']], ignore_index=True)
 # save into tsv
-df.to_csv(f'{il}loops_labels_genes_log2FC.tsv',sep='\t',index=False)
+df.to_csv(f'{il}unique_loops_labels_genes_log2FC.tsv',sep='\t',index=False)
 # violin plot
 ax = sns.violinplot(x='cluster', y=f'log2FC', hue='cond', data=df)
-plt.savefig(f'{ol}violinplot_loops_clusters_log2FC.pdf')
+n = 6
+box_pairs = [((i,'control'),(i,'degron')) for i in range(n)]
+order = [i for i in range(n)]
+add_stat_annotation(ax, data=df, x="cluster", y="log2FC", hue="cond",
+                    box_pairs=box_pairs,
+		            test='Mann-Whitney',order = order,text_format='star', loc='inside', verbose=2)
+plt.savefig(f'{ol}violinplot_unique_loops_clusters_log2FC.pdf')
 plt.close()
 
 

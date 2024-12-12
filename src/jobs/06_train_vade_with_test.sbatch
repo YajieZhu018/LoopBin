@@ -9,15 +9,15 @@
 #SBATCH --gpus-per-node 1
 #SBATCH --mem=48gb
 #SBATCH --time=8:00:00
-#SBATCH --array=1-2
+#SBATCH --array=7
 
 #module load cuda cudnn
 #conda activate loophigh
 run=$SLURM_ARRAY_TASK_ID
-data_path=/usr/users/yzhu1/LoopBin/data/02_process/control_rep1_CTCF_H3K27ac_H3K27me3_SMC1A_H3K4me1/merged_log_data.npy
-pretrain_model_path=/usr/users/yzhu1/LoopBin/trials/saved_models/pretrain_ae_control_rep1_CTCF_H3K27ac_H3K27me3_SMC1A_H3K4me1/
-output_path=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_8clusters_control_rep1_H3K27ac_H3K27me3_SMC1A_H3K4me1_split_test_run"$run"/
+data_path=/usr/users/yzhu1/LoopBin/data/02_process/merged_log_data.npy
+pretrain_model_path=/usr/users/yzhu1/LoopBin/trials/saved_models/pretrain_ae_merged_control_degron_rep1/
+output_path=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_10clusters_merged_control_degron_rep1_cov_dia_split_test_run"$run"/
 if_pretrain=True
 epochs=3000
-python /usr/users/yzhu1/LoopBin/main.py -f 6 -num 8 -d $data_path -pre $pretrain_model_path -u $output_path -if_pre $if_pretrain -ep $epochs -p CTCF,H3K27ac,H3K27me3,SMC1A,H3K4me1
+python /usr/users/yzhu1/LoopBin/main.py -f 6 -num 10 -d $data_path -pre $pretrain_model_path -u $output_path -if_pre $if_pretrain -ep $epochs -p CTCF,H3K27ac,H3K27me3,SMC1A
 #python /usr/users/yzhu1/LoopBin/src/jobs/train_vade.py $n_clusters $data_path $pretrain_model_path $output_path $if_pretrain $epochs

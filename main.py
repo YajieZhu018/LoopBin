@@ -3,7 +3,7 @@ LoopBin clusters chromatin loops with a VADE model.
 It provides functions for preprocessing, processing, pretraining, training, and clustering.
 
 Author: Yajie Zhu, Alexis Bel
-Date: 2024-09-07
+Date: 2024-12-08
 """
 import argparse
 import os
@@ -36,114 +36,102 @@ def parse_arguments():
     parser.add_argument(
         "-f",
         dest="flag",
-        help="Flag to run different functions of the script\n"
-        "1. Preprocessing, use with -b, -g, and -n\n"
-        "2. Processing, use with -l , -c and -g. Optional -r \
-for multiprocessing and -u the folder\n"
-        "2.1 Merge processed data, use with -e for the condition groups and -u for the output folder, "
-        "3. Pretrain the AE model and save it. With -d for the \
-process data and -u for the folder \n"
-        "4. Train the VADE model and clustering, use with -num for the number of cluster \
-            -d for the processed data, -pre for the pretrained model path, -u for the output folder, -ep for the epoch number \
-            -if_pre for if pretrain \n"
-        "5. Predict the cluster with a trained model, use with -d for the processed data, -m for the model path, -u for the output folder",
+        help="Functions to run\n"
+        "The available functions are:\n"
+        "preprocess\n"
+        "process\n"
+        "normalize\n"
+        "pretrain\n"
+        "train\n"
+        "cluster\n"
+        "merge\n"
+        "Usage:\n"
+        "preprocess: preprocess input epigenetic data, used with -b <bigwig file> -g <output folder of bedgraph> -n <name of epigenetic data>\n"
+        "processing: process bedgraph files and a cool file to generate the input for the model,\
+              used with -l <loop file> -c <cool file> -g <folder of bedgraph> -o <output folder> -r <number of processors>\n"
+        "normalize: merge and co-normalize processed data of different conditions, used with -e <cond1,cond2> -u <output folder>\n"
+        "pretrain: pretrain the autencoder (AE) model, used with -d <processed data> -u <output folder>\n"
+        "train: train the VADE model and clustering, used with -num <number of clusters> -d <processed_data> -if_pre <True/False> -pre <path to the pretrained model> \
+            -u <output folder>, -ep <epoch number> -p <epig_name1,epig_name2>\n"
+        "cluster: predict the cluster with a trained model, used with -d <processed data> -m <model path> -u <output folder>\n"
+        "merge: merge small clusters, used with -d <processed data> -u <output folder> -k <clusters to merge>\n",
         nargs="?",
         const=0
     )
     parser.add_argument(
         "-b",
         dest="preprocess",
-        help="File bigwig to preprocess. In the case you don't have the \
-bigwig of a feature, you can write \"empty\" and it \
-will generate empty bedgraph",
+        help="Path to the bigwig files.",
         nargs="?",
         const="_"
     )
     parser.add_argument(
         "-n",
         dest="name",
-        help="Name of the preprocessing feature. such as CTCF, \
-H3K27ac, H3K27me3, and SMC1A",
+        help="Name of the CUT&TAG data. such as CTCF, H3K27ac, H3K27me3, and SMC1A",
         nargs="?",
         const=0
     )
     parser.add_argument(
         "-g",
         dest="bedgraph_folder",
-        help="Folder containing the bedgraph files from epigenetic features \
-or where to put the bedgraph files.",
+        help="Path to the bedgraph files of the epigenetic features.",
         nargs="?",
         const=None
     )
     parser.add_argument(
         "-p",
         dest="proteins",
-        help="Name of the protein tracks separated by comma",
+        help="Name of the CUT&TAG separated by comma",
         nargs="?",
         const="CTCF,H3K27ac,H3K27me3,SMC1A"
     )
     parser.add_argument(
         "-e",
         dest="conditions",
-        help="list of conditions.",
-        nargs="?",
-        const=None
-    )
-    parser.add_argument(
-        "-o",
-        dest="log_nornalized_input_folder",
-        help="Folder containing the log min-max normalized files from microC and epigenetic features",
+        help="list of conditions separated by comma, such as control,treatment",
         nargs="?",
         const=None
     )
     parser.add_argument(
         "-l",
         dest="list_loop",
-        help="Bedpe file containing  the localisation of the chromatin loop.",
+        help="Path to the bedpe file containing the chromatin loops.",
         nargs="?",
         const=None
     )
     parser.add_argument(
         "-c",
         dest="cool_file",
-        help="Cool file containing  micro-C data. Will automatically use the \
-resolution 8000",
+        help="Path to the mcool file of micro-C data. The resolution of 8kb is used.",
         nargs="?",
         const=None
     )
     parser.add_argument(
         "-d",
         dest="file",
-        help="File of the processed data",
+        help="Path to the processed data",
         nargs="?",
         const=None
     )
     parser.add_argument(
         "-r",
         dest="nbr_cpu",
-        help="Number of cpu use for the processing",
+        help="Number of cpus.",
         nargs="?",
         const=1
     )
     parser.add_argument(
         "-u",
         dest="folder",
-        help="Folder to put the output.For Processing and result of \
-clustering",
-        nargs="?",
-        const=None
-    )
-    parser.add_argument(
-        "-fo",
-        dest="weight_folder",
-        help="Folder of the VAE model",
+        help="Folder to the output.",
         nargs="?",
         const=None
     )
     parser.add_argument(
         "-num",
         dest="cluster_number",
-        help="Number of cluster for the clustering",
+        help="Number of cluster",
         nargs="?",
         const=10
     )
@@ -157,28 +145,28 @@ clustering",
     parser.add_argument(
         "-pre",
         dest="pretrained_model",
-        help="Path to the pretrained model",
+        help="Path to the pretrained AE model",
         nargs="?",
         const=None
     )
     parser.add_argument(
         "-if_pre",
         dest="if_pretrain",
-        help="True if pretrain model is used",
+        help="True if the pretrain model is used",
         nargs="?",
         const='True'
     )
     parser.add_argument(
         "-m",
         dest="model",
-        help="Path to the model",
+        help="Path to the VADE model",
         nargs="?",
         const=None
     )
     parser.add_argument(
         "-k",
         dest="clusters",
-        help="clusters to merge such as 2,3",
+        help="clusters to merge separated by comma such as 2,3",
         nargs="?",
         const=None
     )
@@ -400,9 +388,9 @@ def train_vade(args):
     random.seed(seed)
     np.random.seed(seed)
     tf.random.set_seed(seed)
-    os.environ['TF_DETERMINISTIC_OPS'] = '1'
-    tf.config.threading.set_inter_op_parallelism_threads(8)
-    tf.config.threading.set_intra_op_parallelism_threads(8)
+    #os.environ['TF_DETERMINISTIC_OPS'] = '1'
+    #tf.config.threading.set_inter_op_parallelism_threads(8)
+    #tf.config.threading.set_intra_op_parallelism_threads(8)
     # load the data
     X = np.load(data_path)
     # no test data for unsupervised learning
@@ -502,20 +490,21 @@ def train_vade_with_test(args):
     # set ae model
     adam_nn= tf.keras.optimizers.Adam(learning_rate=0.002,epsilon=1e-4)
     vade.compile(optimizer=adam_nn)
-    history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=1)
+    history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=1, validation_data=(X_test, X_test))
     # save the model
     vade.save(output_path)
-    # concatenate data and folder pairs into a list
-    data_folders = [(X_train, "train"), (X_test, "test")]
-    # create the subfolder
-    for _, folder in data_folders:
-        os.makedirs(f'{output_path}/{folder}', exist_ok=True)
-    # predict on both training and testing data
-    loop_path = os.path.dirname(data_path)
-    for data, folder in data_folders:
-        cluster_data_inner_func(data, vade, loop_path, f'{output_path}/{folder}', list_epic)
-        # plot loss of the model
-        plotting.plot_train_loss(history, f'{output_path}/{folder}/')
+    # plot loss of the model
+    plotting.plot_loss(history, output_path)
+    ## concatenate data and folder pairs into a list
+    #data_folders = [(X_train, "train"), (X_test, "test")]
+    ## create the subfolder
+    #for _, folder in data_folders:
+    #    os.makedirs(f'{output_path}/{folder}', exist_ok=True)
+    ## predict on both training and testing data
+    #loop_path = os.path.dirname(data_path)
+    #for data, folder in data_folders:
+    #    cluster_data_inner_func(data, vade, loop_path, f'{output_path}/{folder}', list_epic)
+
 
 def calculate_generalizability(args):
     """
@@ -531,8 +520,14 @@ def calculate_generalizability(args):
     if_pretrain = args.if_pretrain
     epochs = int(args.epoch_number)
     gmm_name = output_path.split('/')[-2]
+    #seed = random.randint(1,100)
+    #print(f'seed = {seed}')
+    #random.seed(seed)
+    #np.random.seed(seed)
+    #tf.random.set_seed(seed)
     # set random seed to ensure the reproducibility
     X = np.load(data_path)
+    np.random.shuffle(X)
     # set vade model
     d_input = X.shape[1]
     ## Define a learning rate scheduler
@@ -542,7 +537,7 @@ def calculate_generalizability(args):
     )
     # initialize dic to store generalizability
     dic_g = {'g':{}, 'g recon':{}, 'g kl':{}, 'train loss':{}, 'test loss':{}, 
-             'train recon loss':{}, 'test recon loss':{}, 'train kl loss':{}, 'test kl loss':{}, 'N cluster':{}}
+             'train recon loss':{}, 'test recon loss':{}, 'train kl loss':{}, 'test kl loss':{}, 'N cluster':{}, 'N all cluster':{}}
     for n_clusters in range(4,11):
         # create n_cluster as key and empty list as value
         dic_g['g'][n_clusters] = []
@@ -555,6 +550,7 @@ def calculate_generalizability(args):
         dic_g['train kl loss'][n_clusters] = []
         dic_g['test kl loss'][n_clusters] = []
         dic_g['N cluster'][n_clusters] = []
+        dic_g['N all cluster'][n_clusters] = []
         vade = VADE(d_input,n_clusters)
         vade(np.zeros((10, d_input)))
         #vade.summary()
@@ -568,12 +564,12 @@ def calculate_generalizability(args):
         # Define cross-validation
         kf = KFold(n_splits=5, shuffle=True, random_state=42)
         # Initialize dict to store errors
-        dic_err = {'train':[], 'test':[], 'train_recon':[],'test_recon':[], 'train_kl':[],'test_kl':[], 'N_cluster':[]}
+        dic_err = {'train':[], 'test':[], 'train_recon':[],'test_recon':[], 'train_kl':[],'test_kl':[], 'N_cluster':[], 'N_all_cluster':[]}
         # Perform cross-validation
         loss_fn = tf.keras.losses.BinaryCrossentropy()
         for train_index, test_index in kf.split(X):
             X_train, X_test = X[train_index], X[test_index]
-            history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=1)
+            history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=1,validation_data=(X_test, X_test))
             for data, key in [(X_train,'train'), (X_test,'test')]:
                 z_mean, z_log_var, z = vade.encoder.predict(data)
                 reconstruction = vade.decoder(z)
@@ -585,78 +581,81 @@ def calculate_generalizability(args):
                 dic_err[key].append(loss.numpy().astype(float))
                 dic_err[f'{key}_recon'].append(reconstruction_loss.numpy().astype(float))
                 dic_err[f'{key}_kl'].append(kl_loss.numpy().astype(float))
-                if (key == 'test'):
+                from collections import Counter
+                def filter_elements_by_frequency(lst, threshold_percent=2):
+                    # Count the occurrences of each element
+                    element_counts = Counter(lst)
+                    # Total number of elements in the list
+                    total_elements = len(lst)
+                    # Calculate the threshold
+                    threshold = (threshold_percent / 100) * total_elements
+                    # Get elements whose frequency is greater than the threshold
+                    result = [element for element, count in element_counts.items() if count > threshold]
+                    return result
+                if (key == 'train'):
                     # get the real cluster number
                     prob = vade.gmm(z_mean)
                     # get the cluster of the data
                     cluster = np.argmax(prob,axis=1)
+                    labels = filter_elements_by_frequency(list(cluster), threshold_percent=2)
                     # save the real cluster number
-                    dic_err['N_cluster'].append(len(np.unique(cluster)))
+                    dic_err['N_all_cluster'].append(len(np.unique(cluster)))
+                    dic_err['N_cluster'].append(len(labels))
         # Calculate generalization as train error / test error for each fold
         generalization = list(np.array(dic_err['train']) / np.array(dic_err['test']))
         g_recon = list(np.array(dic_err['train_recon']) / np.array(dic_err['test_recon']))
         g_kl = list(np.array(dic_err['train_kl']) / np.array(dic_err['test_kl']))
         # add to dic_g
-        dic_g['g'][n_clusters].append(generalization)
-        dic_g['g recon'][n_clusters].append(g_recon)
-        dic_g['g kl'][n_clusters].append(g_kl)
-        dic_g['train loss'][n_clusters].append(dic_err['train'])
-        dic_g['test loss'][n_clusters].append(dic_err['test'])
-        dic_g['train recon loss'][n_clusters].append(dic_err['train_recon'])
-        dic_g['test recon loss'][n_clusters].append(dic_err['test_recon'])
-        dic_g['train kl loss'][n_clusters].append(dic_err['train_kl'])
-        dic_g['test kl loss'][n_clusters].append(dic_err['test_kl'])
-        dic_g['N cluster'][n_clusters].append(dic_err['N_cluster'])
+        dic_g['g'][n_clusters] = generalization
+        dic_g['g recon'][n_clusters] = g_recon
+        dic_g['g kl'][n_clusters] = g_kl
+        dic_g['train loss'][n_clusters] = dic_err['train']
+        dic_g['test loss'][n_clusters] = dic_err['test']
+        dic_g['train recon loss'][n_clusters] = dic_err['train_recon']
+        dic_g['test recon loss'][n_clusters] = dic_err['test_recon']
+        dic_g['train kl loss'][n_clusters] = dic_err['train_kl']
+        dic_g['test kl loss'][n_clusters] = dic_err['test_kl']
+        dic_g['N cluster'][n_clusters] = dic_err['N_cluster']
+        dic_g['N all cluster'][n_clusters] = dic_err['N_all_cluster']
     # save g
     import json
-    with open(f'{output_path}/generalizability.json', 'w') as json_file:
+    with open(f'{output_path}/generalizability_vs_set_num_clusters.json', 'w') as json_file:
         json.dump(dic_g, json_file, indent=4)
-    # plot g
-    # Prepare x-axis, y-axis means, and standard deviations
-    x = list(dic_g['g recon'].keys())  # Keys as x-axis labels
-    y_means = [np.mean(values) for values in dic_g['g recon'].values()]  # Mean of each list
-    y_stds = [np.std(values) for values in dic_g['g recon'].values()]    # Standard deviation of each list
-    # Plotting G
-    plt.figure(figsize=(8, 6))
-    plt.errorbar(x, y_means, yerr=y_stds, fmt='o', capsize=5, capthick=2, marker='s', linestyle='-', color='b')
-    plt.xlabel("N of clusters")
-    plt.ylabel("Generalizability of reconstruction loss")
-    plt.title("G with standard deviation of each cluster number")
-    plt.savefig(f'{output_path}/generalizability_reconstruction_loss.pdf')
-    plt.close()
-    plt.figure(figsize=(8, 6))
+    # get actual cluster number
+    from collections import defaultdict  # it allows appending without initializing empty list
+    new_dict = defaultdict(list)
+    for key in dic_g:
+        if key != 'N cluster':
+            new_dict[key] = defaultdict(list)
+            # Iterate over each cluster count
+            for cluster_num, values in dic_g[key].items():
+                n_clusters = dic_g['N cluster'][cluster_num]
+                # For each N cluster, append the corresponding the value
+                for n, value in zip(n_clusters, values):
+                    new_dict[key][n].append(value)
+            # Convert defaultdict back to a regular dictionary (optional)
+            new_dict[key] = dict(sorted(new_dict[key].items()))
+    new_dict = dict(new_dict)
+    # save
+    out_file_name = f'{output_path}g_vs_actual_num_clusters.json'
+    with open(out_file_name, 'w') as json_file:
+            json.dump(new_dict, json_file, indent=4)
     # plotting training and testing error
-    for subkey in [' ', ' recon ', ' kl ']:
+    for subkey in [' recon ']:
         dic_color = {f'train{subkey}loss': 'b', f'test{subkey}loss':'r'}
         for err in [f'train{subkey}loss', f'test{subkey}loss']:
-            x = list(dic_g[err].keys())  # Keys as x-axis labels
-            y_means = [np.mean(values) for values in dic_g[err].values()]  # Mean of each list
-            y_stds = [np.std(values) for values in dic_g[err].values()]    # Standard deviation of each list
+            x = list(new_dict[err].keys())  # Keys as x-axis labels
+            y_means = [np.mean(values) for values in new_dict[err].values()]  # Mean of each list
+            y_stds = [np.std(values) for values in new_dict[err].values()]    # Standard deviation of each list
             plt.errorbar(x, y_means, yerr=y_stds, fmt='o', capsize=5, capthick=2, marker='s', linestyle='-', color=dic_color[err], label=f'{err.capitalize()}')
-        plt.xlabel("N of clusters")
+        plt.xlabel("N of actual clusters")
         plt.ylabel(f'{subkey}loss')
         plt.title("loss with standard deviation of each cluster number")
         plt.legend()
         subname=subkey.strip()
-        plt.savefig(f'{output_path}/{subname}Loss.pdf')
+        plt.savefig(f'{output_path}{subname}_loss_vs_actual_num_cluster.pdf')
         plt.close()
-    # plotting N cluster
-    plt.figure(figsize=(8, 6))
-    x = list(dic_g['N cluster'].keys())
-    y_values = list(dic_g['N cluster'].values())
-    y = [np.mean(values) for values in y_values]
-    plt.scatter(x, y, color='red', label='Average', zorder=3)
-    plt.plot(x, y, color='red', linestyle='--', zorder=2)
-    # Plot each individual data point
-    #for a, b in zip(x, y_values):
-    #    plt.scatter([a] * len(b), b, alpha=0.6, label='real cluster number', color='blue', zorder=1)
-    plt.xlabel("N of set clusters")
-    plt.ylabel("N of real clusters")
-    plt.title("real vs set cluster number")
-    plt.grid(True)
-    plt.legend()
-    plt.savefig(f'{output_path}/cluster_number.pdf')
-    plt.close()
+
 
 def calcualte_NMI(args):
     from sklearn.metrics import normalized_mutual_info_score
@@ -770,30 +769,24 @@ def find_consensu_cluster(args):
 
 def main(args):
     """Main function"""
-    if args.flag == '1':
+    if args.flag == 'preprocess':
         preprocess(args)
-    elif args.flag == '2':
+    elif args.flag == 'process':
         process(args)
-    elif args.flag == '2.1':
+    elif args.flag == 'normalize':
         process_all_groups(args)
-    elif args.flag == '3':
+    elif args.flag == 'pretrain':
         pretrain_ae(args)
-    elif args.flag == '4':
+    elif args.flag == 'train':
         train_vade(args)
-    elif args.flag == '4.1':
-        save_model_each_200_epochs(args)
-    elif args.flag == '5':
+    elif args.flag == 'cluster':
         cluster_data(args)
-    elif args.flag == '6':
-        train_vade_with_test(args)
-    elif args.flag == '7':
-        calculate_generalizability(args)
-    elif args.flag == '8':
-        calcualte_NMI(args)
-    elif args.flag == '9':
+    elif args.flag == 'merge':
         merge_small_clusters(args)
-    elif args.flag == '10':
-        find_consensu_cluster(args)
+    elif args.flag == 'calculateg':
+        calculate_generalizability(args)
+    elif args.flag == 'nmi':
+        calcualte_NMI(args)
     else:
         sys.exit("Invalid flag.")
     

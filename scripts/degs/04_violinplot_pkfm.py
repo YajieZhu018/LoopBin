@@ -4,7 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from statannot import add_stat_annotation
-ol = '/usr/users/yzhu1/LoopBin/trials/saved_models/vade_7clusters_merged_control_degron_rep1/degs/'
+import sys
+folder = sys.argv[1]
+ol = f'{folder}degs/'
 conds = ['control', 'degron']
 for cond in conds:
     in_file = f'{ol}{cond}_loops_labels_genes_fkpm.bed'

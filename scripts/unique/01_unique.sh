@@ -1,36 +1,15 @@
 #/bin/bash
 # find unique loops in each group
 # input folder
-il=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_7clusters_merged_control_degron_rep1/intersect/01_sorted/
+folder=$1
+il="$folder"intersect/01_sorted/
 # output folder
-ol=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_7clusters_merged_control_degron_rep1/unique/01_sorted/
+ol="$folder"unique/01_unique/
 mkdir -p $ol
-# merged loops of each condition but keep the label of each loop and add the label to the end of each line; the loop label is 1-6 
-# loop through conditions
-for cond in control degron
-do
-    outfile="$ol""$cond"_loops_label_merged.bed
-    # loop through 1-6
-    for i in {1..6}
-    do
-        file="$il""$cond"_loops_label_"$i".bed
-        # print and add the label to the outfile
-        awk -v i="$i" '{print $0,i}' $file >> "$outfile"temp
-    done
-    # sort the merged file
-    pgltools sort "$outfile"temp > "$outfile"
-    rm "$outfile"temp
-done
-
 # find unique loops in each group
-for i in {1..6}
-do
-    # get degron unique
-    file="$il"degron_loops_label_"$i".bed
-    merged="$ol"control_loops_label_merged.bed
-    pgltools intersect -v -u -d 8000 -a $file -b $merged > "$ol"degron_loops_label_"$i".bed
-    # get control unique
-    file="$il"control_loops_label_"$i".bed
-    merged="$ol"degron_loops_label_merged.bed
-    pgltools intersect -v -u -d 8000 -a $file -b $merged > "$ol"control_loops_label_"$i".bed
-done
+# get degron unique
+file1="$il"degron_labels_loops.bedpe
+file2="$il"control_labels_loops.bedpe
+pgltools intersect -v -u -d 8000 -a $file1 -b $file2 | awk 'BEGIN {OFS=FS="\t"} {print $1,$2,$3,$4,$5,$6,$9}' > "$ol"degron_unique_labels_loops.bedpe
+# get control unique
+pgltools intersect -v -u -d 8000 -a $file2 -b $file1 | awk 'BEGIN {OFS=FS="\t"} {print $1,$2,$3,$4,$5,$6,$11}' > "$ol"control_unique_labels_loops.bedpe

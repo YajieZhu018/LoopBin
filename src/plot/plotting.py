@@ -87,7 +87,7 @@ def plot_loss(history, path):
         ax = axes[i]
         ax.plot(history.history[ori])
         ax.plot(history.history[val])
-        if ori == "kl_loss":
+        if ori == "kl_loss" or ori == "loss":
             plt.yscale("log")
         ax.set_title(f'Model {ori}')
         ax.set_ylabel(ori)

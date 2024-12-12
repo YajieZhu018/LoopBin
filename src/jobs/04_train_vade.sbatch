@@ -9,7 +9,7 @@
 #SBATCH --gpus-per-node 1
 #SBATCH --mem=48gb
 #SBATCH --time=8:00:00
-#SBATCH --array=6-7
+#SBATCH --array=8
 
 #module load cuda cudnn
 #conda activate loophigh
@@ -18,6 +18,6 @@ data_path=/usr/users/yzhu1/LoopBin/data/02_process/merged_log_data.npy
 pretrain_model_path=/usr/users/yzhu1/LoopBin/trials/saved_models/pretrain_ae_merged_control_degron_rep1/
 output_path=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_10clusters_merged_control_degron_rep1_cov_dia_run"$run"/
 if_pretrain=True
-epochs=400
-python /usr/users/yzhu1/LoopBin/main.py -f 4 -num 10 -d $data_path -pre $pretrain_model_path -u $output_path -if_pre $if_pretrain -ep $epochs -p CTCF,H3K27ac,H3K27me3,SMC1A
+epochs=500
+python /usr/users/yzhu1/LoopBin/main.py -f 4 -num 10 -d $data_path -pre $pretrain_model_path -u $output_path  -ep $epochs -p CTCF,H3K27ac,H3K27me3,SMC1A
 #python /usr/users/yzhu1/LoopBin/src/jobs/train_vade.py $n_clusters $data_path $pretrain_model_path $output_path $if_pretrain $epochs

@@ -1,10 +1,10 @@
 #!/bin/bash
 fl=/usr/users/yzhu1/LoopBin/scripts/metaplot/
 # Format the input bed files for the metaplot analysis
-for i in 6 7
+for i in 10
 do
-    il=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_"$i"clusters_merged_control_degron_rep1/
-    ol=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_"$i"clusters_merged_control_degron_rep1/metaplot/
+    il=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_"$i"clusters_merged_control_degron_rep1_cov_dia_run1/
+    ol=/usr/users/yzhu1/LoopBin/trials/saved_models/vade_"$i"clusters_merged_control_degron_rep1_cov_dia_run1/metaplot/
     mkdir -p "$ol"temp
     for cond in control degron 
     do

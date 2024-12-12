@@ -2,12 +2,14 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import sys
 # get the number of all loops in each cluster calculating the frequency of cluster in the 7th column of the loop file
 # in the directory of the loop files
-il = '/usr/users/yzhu1/LoopBin/trials/saved_models/vade_7clusters_merged_control_degron_rep1/degs/' 
+folder = sys.argv[1]
+il = f'{folder}degs/' 
 # loop through control and degron
 for cond in ["control", "degron"]:
-    loop_file = f'{il}{cond}_loops_labels.bed'
+    loop_file = f'{folder}intersect/01_sorted/{cond}_labels_loops_formatted.bedpe'
     # read into a dataframe
     df = pd.read_csv(loop_file, sep='\t', header=None)
     # get the frequency of each cluster in a dictionary

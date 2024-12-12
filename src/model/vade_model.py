@@ -164,7 +164,11 @@ class VADE(keras.Model):
         self.gmm.u_p.assign(tf.cast(g.means_.T, tf.float32))
         self.gmm.lambda_p.assign(tf.cast(covariances.T, tf.float32))
         print('Pretrained weights loaded')
-        
+
+    def calculate_entropy(self,gamma):
+        avg_cluster_prob = tf.reduce_mean(gamma, axis=0)  # gamma (batch_size, n_clusters)
+        entropy = -tf.reduce_sum(avg_cluster_prob * tf.math.log(avg_cluster_prob + 1e-10))
+        return entropy       
         
     def calculate_kl_loss(self, z, z_mean, z_log_var):  # calculate the KL loss of the latent space
         batch_size, latent_dim = tf.shape(z)[0], tf.shape(z)[1]
@@ -182,12 +186,17 @@ class VADE(keras.Model):
         gamma = p_c_z/tf.reduce_sum(p_c_z,axis=-1,keepdims=True)
         gamma_t= tf.tile(tf.expand_dims(gamma,1),[1,latent_dim,1])
         # calculate the loss
-        loss = 0.5*tf.reduce_sum(gamma_t*(tf.cast(latent_dim, tf.float32)*tf.math.log(math.pi*2)+tf.math.log(lambda_tensor3)+tf.exp(z_log_var_t)/lambda_tensor3+tf.square(z_mean_t-u_tensor3)/lambda_tensor3),axis=(1,2))\
+        kl_loss = 0.5*tf.reduce_sum(gamma_t*(tf.cast(latent_dim, tf.float32)*tf.math.log(math.pi*2)+tf.math.log(lambda_tensor3)+tf.exp(z_log_var_t)/lambda_tensor3+tf.square(z_mean_t-u_tensor3)/lambda_tensor3),axis=(1,2))\
         -0.5*tf.reduce_sum(z_log_var+1,axis=-1)\
         -tf.reduce_sum(tf.math.log(tf.tile(tf.expand_dims(self.gmm.theta_p,0),[batch_size,1]))*gamma,axis=-1)\
         +tf.reduce_sum(tf.math.log(gamma)*gamma,axis=-1)  # shape: (batch_size,)
-        loss = tf.reduce_mean(loss) # average through batch size
-        return loss
+        kl_loss = tf.reduce_mean(kl_loss) # average through batch size
+        # calculate entropy
+        #normalized_entropy = self.calculate_entropy(gamma) / math.log(gamma.shape[1])
+        #loss = kl_loss - normalized_entropy * 70
+        return kl_loss
+    
+
     
 
     def call(self, inputs):
@@ -221,3 +230,18 @@ class VADE(keras.Model):
         self.reconstruction_loss_tracker.update_state(reconstruction_loss)
         self.kl_loss_tracker.update_state(kl_loss)
         return {"loss": self.total_loss_tracker.result(), "reconstruction_loss": self.reconstruction_loss_tracker.result(), "kl_loss": self.kl_loss_tracker.result()}
+    
+    @tf.function
+    def test_step(self,data):
+        loss_fn = keras.losses.BinaryCrossentropy()
+        if isinstance(data, tuple):
+            data = data[0]
+        z_mean, z_log_var, z = self.encoder(data)
+        reconstruction = self.decoder(z)
+        reconstruction_loss = loss_fn(data, reconstruction)*self.original_size
+        # calculate vae loss according to the vae loss function
+        kl_loss = self.calculate_kl_loss(z, z_mean, z_log_var)
+        loss = reconstruction_loss + kl_loss
+        return {"loss":loss,
+                "reconstruction_loss": reconstruction_loss,
+                "kl_loss": kl_loss}
