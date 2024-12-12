@@ -43,7 +43,7 @@ python main.py -f process -l LOOP_FILE -c COOL_FILE -g PROCESSED_DATA_FOLDER -r 
 
 -c: the .mcool file
 
--g: the folder containing the bedgraph files from epigenetic features, output from the preprocessing step
+-g: the folder containing the bedgraph files from epigenetic features, output from the step 1
 
 -r: the number of processors
 
@@ -53,7 +53,7 @@ Normalize and merge input data from different conditions
 ```bash
 python main.py -f normalize -e CONDITION1,CONDITION2,... -u OUTPUT_FOLDER
 ```
--e: conditions to merge; the last subfolder of the output folder from the previous processing step
+-e: conditions to merge. They are the names of the subfolder where we store the individual processed data
 
 -u: the output folder
 
