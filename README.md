@@ -20,13 +20,13 @@ This pipeline requires:
 3. Several .bigwig files containing the protein binding profiles like CTCF, cohesin, H3K27ac and H3K27me3 captured by ChIP-seq or Cut&Tag techniques.
 The data that we used to train the model can be downloaded from https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE178593.
 
-## Usage
+## Implement
 ```bash
-python main.py -f FLAG --arguements
+python main.py -f FUNCTION --arguements
 ```
-⭐Flag 1. Preprocessing bigwig
+⭐Step 1. Preprocessing bigwig
 ```bash
-python main.py -f 1 -b BIGWIG_FILE -g OUTPUT_FOLDER -n BIGWIG_NAME
+python main.py -f preprocess -b BIGWIG_FILE -g OUTPUT_FOLDER -n BIGWIG_NAME
 ```
 -b: the bigwig file to be preprocessed into bedgraphs
 
@@ -35,9 +35,9 @@ python main.py -f 1 -b BIGWIG_FILE -g OUTPUT_FOLDER -n BIGWIG_NAME
 -n: which protein binding profile is used, such as CTCF, H3K27ac, H3K27me3, or SMC1A
 
 
-⭐FLAG 2. Processing input data
+⭐Step 2. Processing input data
 ```bash
-python main.py -f 2 -l LOOP_FILE -c COOL_FILE -g PROCESSED_DATA_FOLDER -r PROCESSOR -u OUTPUT_FOLDER
+python main.py -f process -l LOOP_FILE -c COOL_FILE -g PROCESSED_DATA_FOLDER -r PROCESSOR -u OUTPUT_FOLDER
 ```
 -l: the .bedpe file containing the coordinates of loop anchors
 
@@ -51,25 +51,25 @@ python main.py -f 2 -l LOOP_FILE -c COOL_FILE -g PROCESSED_DATA_FOLDER -r PROCES
 
 Normalize and merge input data from different conditions
 ```bash
-python main.py -f 2.2 -e CONDITION1,CONDITION2,... -u OUTPUT_FOLDER
+python main.py -f normalize -e CONDITION1,CONDITION2,... -u OUTPUT_FOLDER
 ```
 -e: conditions to merge; the last subfolder of the output folder from the previous processing step
 
 -u: the output folder
 
 
-⭐Flag 3. Pretrain the AE model
+⭐Step 3. Pretrain the AE model
 ```bash
-python main.py -f 3 -d INPUT_DATA -u OUTPUT_FOLDER
+python main.py -f pretrain -d INPUT_DATA -u OUTPUT_FOLDER
 ```
 -d: the processed input data
 
 -u: the output folder
 
 
-⭐Flag 4. Train the VADE model
+⭐Step 4. Train the VADE model
 ```bash
-python main.py -f 4 -num NUMBER_CLUSTERS -d INPUT_DATA -if_pre True -pre PRETRAINED_MODEL -ep NUMBER_EPOCHS -u OUTPUT_FOLDER
+python main.py -f train -num NUMBER_CLUSTERS -d INPUT_DATA -if_pre True -pre PRETRAINED_MODEL -ep NUMBER_EPOCHS -u OUTPUT_FOLDER -p NAME1,NAME2,...
 ```
 -num: the number of clusters, set by the users based on experiences and domain knowledges
 
@@ -83,10 +83,12 @@ python main.py -f 4 -num NUMBER_CLUSTERS -d INPUT_DATA -if_pre True -pre PRETRAI
 
 -u: the output folder
 
+-p: Names of the CUT&TAG separated by comma. The default is CTCF,H3K27ac,H3K27me3,SMC1A
 
-⭐Flag 5. Predict clusters
+
+⭐Step 5. Predict clusters
 ```bash
-python main.py -f 5 -d INPUT_DATA -m MODEL -u OUTPUT_FOLDER
+python main.py -f cluster -d INPUT_DATA -m MODEL -u OUTPUT_FOLDER
 ```
 -d: the processed input data
 
@@ -94,7 +96,17 @@ python main.py -f 5 -d INPUT_DATA -m MODEL -u OUTPUT_FOLDER
 
 -u: the output folder
 
+⭐Step 6. Merge small clusters (optional)
+If the model outputs undesirable small clusters, like which contains less than 2% of loops, you can choose to merge them with others. 
+```bash
+python main.py -f merge -k 2,3 -d INPUT_DATA -u $OUTPUT_FOLDER -p NAME1,NAME2,...,
+```
+-k: labels of the clusters to merge separated by comma such as 2,3
 
+-d: the processed input data
 
+-u: the output folder
+
+-p: Names of the CUT&TAG separated by comma.
 
 
