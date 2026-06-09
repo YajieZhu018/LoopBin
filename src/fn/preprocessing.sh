@@ -9,12 +9,12 @@ if [ $# -gt 5 ] || [ $# -lt 5 ];then
     echo "Missing argument. Put filetarget, folder destination, resolution, chromosome, name of the protein"
     exit 1
 fi
-# To keep the size of each chomosome for the genome hg38
+# To keep the size of each chromosome for the genome mm10 (mouse: chr1-19 + X)
 declare -A chrom
-chrom[chr1]=248956422;chrom[chr2]=242193529;chrom[chr3]=198295559;chrom[chr4]=190214555;chrom[chr5]=181538259;chrom[chr6]=170805979
-chrom[chr7]=159345973;chrom[chr8]=145138636;chrom[chr9]=138394717;chrom[chr10]=133797422;chrom[chr11]=135086622;chrom[chr12]=133275309
-chrom[chr13]=114364328;chrom[chr14]=107043718;chrom[chr15]=101991189;chrom[chr16]=90338345;chrom[chr17]=83257441;chrom[chr18]=80373285;chrom[chr19]=58617616;
-chrom[chr20]=64444167;chrom[chr21]=46709983;chrom[chr22]=50818468;chrom[chrX]=156040895
+chrom[chr1]=195471971;chrom[chr2]=182113224;chrom[chr3]=160039680;chrom[chr4]=156508116;chrom[chr5]=151834684;chrom[chr6]=149736546
+chrom[chr7]=145441459;chrom[chr8]=129401213;chrom[chr9]=124595110;chrom[chr10]=130694993;chrom[chr11]=122082543;chrom[chr12]=120129022
+chrom[chr13]=120421639;chrom[chr14]=124902244;chrom[chr15]=104043685;chrom[chr16]=98207768;chrom[chr17]=94987271;chrom[chr18]=90702639;chrom[chr19]=61431566
+chrom[chrX]=171031299
 
 # Argument input
 target="$1"

@@ -18,6 +18,15 @@ import cooler
 import numpy as np
 from tqdm import tqdm
 
+# Micro-C / bedgraph resolution in bp. Module-level so the per-loop builders (cool_to_matrix,
+# the 16x16 window math, the bedgraph filename "<res/1000>K" suffix) all read one value.
+# Default 10000; overridden by process() from the --resolution CLI flag.
+RESOLUTION = 10000
+
+# Chromosome list for processing; set by process() from the input mcool (cooler chromnames),
+# so the genome is not hardcoded. None until process() runs -> list_chrom() falls back to mm10.
+CHROMS = None
+
 #  Setting variables
 
 # Part of the name for each proteine
@@ -70,7 +79,9 @@ def list_chrom():
     Returns:
         list: A list of chromosome names.
     """
-    chromosomes = ["chr" + str(i) for i in range(1, 23)] + ["chrX"]
+    if CHROMS:                              # set by process() from the mcool's chromnames
+        return list(CHROMS)
+    chromosomes = ["chr" + str(i) for i in range(1, 20)] + ["chrX"]   # mm10 fallback
     return chromosomes
 
 
@@ -85,8 +96,8 @@ def calcualte_submatrix_region_with_loop_midpoint(midpoint):
     Returns:
         tuple: The start and end positions of the submatrix as integers.
     """
-    start = 8000 * (midpoint // 8000 - 16 / 2)
-    end = 8000 * (midpoint // 8000 + 16 / 2)
+    start = RESOLUTION * (midpoint // RESOLUTION - 16 / 2)
+    end = RESOLUTION * (midpoint // RESOLUTION + 16 / 2)
     return int(start), int(end)
 
 
@@ -108,7 +119,7 @@ def create_list_epi(file_epi, epigenetics_path):
     for chrom in chromosome:
         new_sample_name[chrom] = []
         for name in file_epi:
-            new_sample_name[chrom].append(epigenetics_path + "/" + chrom + "_" + name + "8K.bedgraph")
+            new_sample_name[chrom].append(epigenetics_path + "/" + chrom + "_" + name + f"{RESOLUTION//1000}K.bedgraph")
     return new_sample_name
 
 
@@ -165,8 +176,8 @@ def extract_signal_from_bedgraph(name_file, chrom, start, end):
         numpy.ndarray: An array containing the extracted signal.
     """
     # calculate line index: from mth line to nth line
-    starting = int(start / 8000)
-    ending = int(end / 8000) - 1
+    starting = int(start / RESOLUTION)
+    ending = int(end / RESOLUTION) - 1
     # generate an empty numpy array
     arr = np.empty([ending-starting+1, len(name_file[chrom])])
     for i, file in enumerate(name_file[chrom]):
@@ -306,25 +317,25 @@ def input_creator_r(loop_file, cool_file, bedgraph, proteins, n_cpu):
                 midpoint2)
 
             # Filtering the loops close to the diagnal
-            ranges1 = [(start1, end1), (start1 - 8000, end1 - 8000),
-                       (start1 + 8000, end1 + 8000), (start1 - 8000 * 2, end1 -
-                                                      8000 * 2), (start1 + 8000
+            ranges1 = [(start1, end1), (start1 - RESOLUTION, end1 - RESOLUTION),
+                       (start1 + RESOLUTION, end1 + RESOLUTION), (start1 - RESOLUTION * 2, end1 -
+                                                      RESOLUTION * 2), (start1 + RESOLUTION
                                                                   * 2, end1 +
-                                                                  8000 * 2)]
+                                                                  RESOLUTION * 2)]
             for start, end in ranges1:
-                intersected = list(set(range(start, end, 8000)).intersection(
-                    range(start2, end2, 8000)))
+                intersected = list(set(range(start, end, RESOLUTION)).intersection(
+                    range(start2, end2, RESOLUTION)))
                 if intersected:
                     break
             if intersected:
                 continue
-            ranges2 = [(start2, end2), (start2 - 8000, end2 - 8000),
-                       (start2 + 8000, end2 + 8000),
-                       (start2 - 8000 * 2, end2 - 8000 * 2),
-                       (start2 + 8000 * 2, end2 + 8000 * 2)]
+            ranges2 = [(start2, end2), (start2 - RESOLUTION, end2 - RESOLUTION),
+                       (start2 + RESOLUTION, end2 + RESOLUTION),
+                       (start2 - RESOLUTION * 2, end2 - RESOLUTION * 2),
+                       (start2 + RESOLUTION * 2, end2 + RESOLUTION * 2)]
             for start, end in ranges2:
-                intersected = list(set(range(start1, end1, 8000)).intersection(
-                    range(start, end, 8000)))
+                intersected = list(set(range(start1, end1, RESOLUTION)).intersection(
+                    range(start, end, RESOLUTION)))
                 if intersected:
                     break
             if intersected:
@@ -501,7 +512,7 @@ def create_data(log_epigenetic, log_micro_c):
     return multichannel_matrix
 
 
-def process(loop_file, hic, bedgraph, proteins, nbr_cpu, folder):
+def process(loop_file, hic, bedgraph, proteins, nbr_cpu, folder, resolution=10000):
     """
     Process loop file data, generate multichannel matrices,
     and save the processed data.
@@ -517,6 +528,9 @@ def process(loop_file, hic, bedgraph, proteins, nbr_cpu, folder):
     Returns:
         None
     """
+    global RESOLUTION, CHROMS
+    RESOLUTION = int(resolution)
+    CHROMS = list(cooler.Cooler(hic).chromnames)   # genome from the data, not hardcoded
     if folder is not None and os.path.exists(folder):
         dir_path = f"{folder}"
         name = f"{folder}/loop_file_analysis.bedpe"

@@ -63,7 +63,7 @@ def verif_preprocess(arguments):
         #sys.exit("Only four names available: SMC1A, CTCF, H3K27ac, H3K27me3")
 
     verif_folder(database_folder)
-    print(f"File {preprocess_file} detected. Bedgraph files chr?_{name}8K will\
+    print(f"File {preprocess_file} detected. Bedgraph files chr?_{name}{int(arguments.resolution)//1000}K will\
            be put in {database_folder}")
 
 
@@ -139,7 +139,7 @@ def verif_process(arguments):
     verif_file(loop_list, ".bedpe")
     verif_file(cool_file, ".mcool")
     verif_folder(bedgraph_folder)
-    return cool_file + "::/resolutions/8000"
+    return cool_file + f"::/resolutions/{int(arguments.resolution)}"
 
 
 def save_latent(latent_space, name):

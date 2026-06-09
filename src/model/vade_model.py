@@ -152,8 +152,9 @@ class VADE(keras.Model):
         g = mixture.GaussianMixture(n_components=self.n_centroid, covariance_type=covariance_type, init_params='kmeans', n_init=20, random_state=7)
         z = saved_model.encoder.predict(inputs)
         g.fit(z)
-        # save the g in a folder
-        gmm_folder = '/usr/users/yzhu1/LoopBin/trials/saved_models/gmm_models/'
+        # save the g next to the pretrained model (was a hardcoded author path
+        # '/usr/users/yzhu1/LoopBin/trials/saved_models/gmm_models/' that doesn't exist here)
+        gmm_folder = file_path if file_path.endswith('/') else file_path + '/'
         with open(f'{gmm_folder}{gmm_name}.pkl','wb') as file_pointer:
             pickle.dump(g, file_pointer)
         # set the weights of the GMM

@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 
 from src.fn import function
 from src.fn import processing
+from src.fn.preprocess import run as run_preprocess
 from src.plot import plotting
 from src.model.ae import AE
 from src.model.vade_model import VADE
@@ -103,7 +104,7 @@ def parse_arguments():
     parser.add_argument(
         "-c",
         dest="cool_file",
-        help="Path to the mcool file of micro-C data. The resolution of 8kb is used.",
+        help="Path to the mcool file of micro-C data. Opened at the --resolution level (default 10000); that /resolutions/<res> must exist and be balanced.",
         nargs="?",
         const=None
     )
@@ -170,24 +171,39 @@ def parse_arguments():
         nargs="?",
         const=None
     )
+    parser.add_argument(
+        "-res", "--resolution",
+        dest="resolution",
+        help="Micro-C resolution in bp used for preprocess (bedgraph bin), process "
+             "(mcool ::/resolutions/<res> + the 16x16 window). The mcool must contain a "
+             "BALANCED /resolutions/<res>. Default 10000.",
+        nargs="?",
+        type=int,
+        const=10000,
+        default=10000
+    )
+    parser.add_argument(
+        "-cs", "--chrom-sizes",
+        dest="chrom_sizes",
+        help="UCSC chrom.sizes file (2 cols: name<TAB>size) for the genome; used by preprocess to "
+             "tile chromosomes (replaces the hardcoded mm10/hg38 sizes). Generate from a mcool with "
+             "cooler.Cooler(m).chromsizes, or use UCSC's hg38.chrom.sizes / mm10.chrom.sizes.",
+        nargs="?",
+        default=None
+    )
     return parser.parse_args()
 
 def preprocess(args):
-    """Preprocessing step"""
-    # Verification of the argument use
-    # Get the absolute path of the current script
-    current_script_path = os.path.abspath(__file__)
+    """Preprocessing step: bigWig -> per-chromosome bedgraph.
 
-    # Extract the directory path of the current script (parent directory)
-    script_directory = os.path.dirname(current_script_path)
-
-    # Build the absolute path to the "preprocessing" folder based on the script's location
-    preprocessing_folder = os.path.join(script_directory, 'src')
-    preprocessing_command = os.path.join(script_directory, 'src', 'fn')
-
+    Pure-Python (src/fn/preprocess.py); the genome comes from --chrom-sizes (no hardcoded
+    mm10), tiled at --resolution. Replaces the old `sh preprocess_local.sh` (mm10-only) call.
+    """
     function.verif_preprocess(args)
-    # Preprocessing
-    os.system(f'sh {preprocessing_folder}/preprocess_local.sh {args.preprocess} {args.name} {args.bedgraph_folder} {preprocessing_command}')
+    # name == "empty" writes a zero track for every chromosome (old empty_preprocess.sh)
+    bigwig = "empty" if args.name == "empty" else args.preprocess
+    run_preprocess(bigwig, args.name, args.bedgraph_folder,
+                   args.resolution, args.chrom_sizes, args.nbr_cpu)
     sys.exit()
 
 
@@ -198,7 +214,7 @@ def process(args):
     function.verif_folder(args.bedgraph_folder)
     # Process
     processing.process(args.list_loop, cool_file, args.bedgraph_folder, args.proteins,
-                       args.nbr_cpu, args.folder)
+                       args.nbr_cpu, args.folder, args.resolution)
     sys.exit()
 
 def process_all_groups(args):
@@ -309,9 +325,9 @@ def pretrain_ae(args):
     # predict latent space of X_test
     z = ae.encoder(X)
     plotting.plot_score(z, ol)
-    mcluster = function.set_kmeans(z)
-    with open(f'{ol}/model_cluster.pkl', "wb") as file_pointer:
-        pickle.dump(mcluster, file_pointer)
+    # NOTE: removed `function.set_kmeans(z)` + the model_cluster.pkl dump — set_kmeans is undefined
+    # in src/fn/function.py (crashes pretrain), and the pickle was unused downstream: `train`
+    # refits its own GaussianMixture in vade_model.load_pretrained_weights.
 
 def save_model_each_200_epochs(args):
     """
@@ -329,7 +345,7 @@ def save_model_each_200_epochs(args):
     gmm_name = output_path.split('/')[-2]
     # generate random seed
     #seed = random.randint(1,100)
-    seed = 73
+    seed = int(os.environ.get("LOOPBIN_SEED", 73))   # env-overridable for the seed sweep; default 73 (code value)
     print(f'seed = {seed}')
     random.seed(seed)
     np.random.seed(seed)
@@ -383,7 +399,7 @@ def train_vade(args):
     gmm_name = output_path.split('/')[-2]
     # generate random seed
     #seed = random.randint(1,100)
-    seed = 73
+    seed = int(os.environ.get("LOOPBIN_SEED", 73))   # env-overridable for the seed sweep; default 73 (code value)
     print(f'seed = {seed}')
     random.seed(seed)
     np.random.seed(seed)

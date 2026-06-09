@@ -48,7 +48,11 @@ def plot_score(lat_space, path):
         kmeans = KMeans(n_clusters=i,random_state=0)
         kmeans.fit(lat_space)
         score.append(kmeans.inertia_)
-        sil.append(silhouette_score(lat_space, kmeans.labels_))
+        # subsample the silhouette: the default builds the full n x n distance matrix (O(n^2)
+        # time + memory), which made pretrain hang ~43 min on ~44k loops. sample_size keeps the
+        # diagnostic faithful while bounding cost. (random_state set for reproducibility.)
+        sil.append(silhouette_score(lat_space, kmeans.labels_,
+                                    sample_size=min(2000, len(lat_space)), random_state=0))
     x = range(2,25)
     plt.plot(x,score)
     plt.xticks(x, x,)
