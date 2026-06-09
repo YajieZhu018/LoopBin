@@ -8,6 +8,13 @@ Date: 2024-12-08
 import argparse
 import os
 import sys
+
+# --- Determinism: these MUST be set before TensorFlow is imported (it loads via the
+# `src.model.*` imports below). setdefault so an explicit override from the shell still wins. ---
+os.environ.setdefault("TF_DETERMINISTIC_OPS", "1")
+os.environ.setdefault("TF_CUDNN_DETERMINISTIC", "1")
+os.environ.setdefault("PYTHONHASHSEED", "0")
+
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,6 +30,36 @@ import tensorflow as tf
 import random
 tf.keras.backend.set_floatx('float32')
 #from sklearn.mixture import GaussianMixture
+
+
+def _set_seed(seed=None, threads=None):
+    """Seed every RNG (python / numpy / tensorflow) for reproducible training.
+
+    The determinism env vars (TF_DETERMINISTIC_OPS, ...) are set at module import, before
+    TensorFlow loads. Verified 2026-06-09: with those set + every RNG seeded, two full runs are
+    bit-identical even at high thread counts (tested at 32) — so `threads` is purely a speed /
+    politeness knob, NOT a determinism switch. Reproducibility holds at any *fixed* thread count;
+    just keep it fixed across runs (changing it can flip the last bit of a multithreaded reduction).
+
+    Resolution order for each value: explicit arg > env var (LOOPBIN_SEED / LOOPBIN_THREADS) >
+    built-in default (seed 73, threads 16).
+
+    Must be called before the first TF op of the process (TF forbids changing the thread pools once
+    the runtime is initialised); each pipeline step is its own process, so the one call at the top of
+    pretrain_ae / train_vade is safe.
+    """
+    if seed is None:
+        seed = int(os.environ.get("LOOPBIN_SEED", 73))
+    if threads is None:
+        threads = int(os.environ.get("LOOPBIN_THREADS", 16))
+    print(f"seed = {seed} | threads = {threads} | "
+          f"TF_DETERMINISTIC_OPS={os.environ.get('TF_DETERMINISTIC_OPS')}")
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+    tf.config.threading.set_inter_op_parallelism_threads(threads)
+    tf.config.threading.set_intra_op_parallelism_threads(threads)
+    return seed
 
 def parse_arguments():
     """
@@ -191,6 +228,24 @@ def parse_arguments():
         nargs="?",
         default=None
     )
+    parser.add_argument(
+        "-s", "--seed",
+        dest="seed",
+        help="Random seed for reproducible pretrain+train (seeds python/numpy/tensorflow). "
+             "Precedence: this flag > $LOOPBIN_SEED > built-in default 73. The example pipeline "
+             "pins --seed 1 (the clean Fig-1D draw).",
+        type=int,
+        default=None
+    )
+    parser.add_argument(
+        "-t", "--threads",
+        dest="threads",
+        help="CPU threads for TensorFlow intra/inter-op parallelism. Speed/politeness knob only — "
+             "runs are reproducible at any FIXED thread count (keep it fixed across runs). "
+             "Precedence: this flag > $LOOPBIN_THREADS > built-in default 16.",
+        type=int,
+        default=None
+    )
     return parser.parse_args()
 
 def preprocess(args):
@@ -298,8 +353,11 @@ def pretrain_ae(args):
     ol = args.folder
     # load the input data
     X = np.load(input_data_path)
+    # Seed python/numpy/tf BEFORE building & fitting the AE. The AE weight init (glorot_uniform)
+    # and TF batch shuffle were previously unseeded — the dominant source of run-to-run variation,
+    # since `train` fits its GMM off this AE latent space. Uses the same seed/threads as train.
+    _set_seed(args.seed, args.threads)
     # shuffle the data
-    np.random.seed(0)
     np.random.shuffle(X)
     # set ae model
     d_input = X.shape[1]
@@ -397,16 +455,9 @@ def train_vade(args):
     if_pretrain = args.if_pretrain
     epochs = int(args.epoch_number)
     gmm_name = output_path.split('/')[-2]
-    # generate random seed
-    #seed = random.randint(1,100)
-    seed = int(os.environ.get("LOOPBIN_SEED", 73))   # env-overridable for the seed sweep; default 73 (code value)
-    print(f'seed = {seed}')
-    random.seed(seed)
-    np.random.seed(seed)
-    tf.random.set_seed(seed)
-    #os.environ['TF_DETERMINISTIC_OPS'] = '1'
-    #tf.config.threading.set_inter_op_parallelism_threads(8)
-    #tf.config.threading.set_intra_op_parallelism_threads(8)
+    # Seed everything + deterministic threading (TF_DETERMINISTIC_OPS is set at module top,
+    # before TF import). Same seed/threads as pretrain so the whole run is reproducible.
+    seed = _set_seed(args.seed, args.threads)
     # load the data
     X = np.load(data_path)
     # no test data for unsupervised learning
