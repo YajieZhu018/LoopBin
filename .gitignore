@@ -7,3 +7,6 @@ example/run_*/
 __pycache__/
 *.pyc
 *.pyo
+
+# macOS
+.DS_Store

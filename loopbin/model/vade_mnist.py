@@ -14,8 +14,7 @@ from sklearn.cluster import KMeans
 import gzip
 from six.moves import cPickle
 import sys
-sys.path.append('../')
-from plot import plotting
+from loopbin.plot import plotting
 
 
 # funtion to convert X to the default type float32

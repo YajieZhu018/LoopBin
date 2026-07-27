@@ -12,8 +12,10 @@ tf.keras.backend.set_floatx('float32')
 
 # define class of the AE model
 class AE(keras.Model):
-    def __init__(self, input_size, **kwargs):
+    def __init__(self, input_size, loss_weights=None, **kwargs):
         super().__init__(**kwargs)
+        # Phase 2: optional per-feature BCE weights (None => unmodified loss, byte-identical baseline)
+        self.feature_weights = None if loss_weights is None else tf.constant(loss_weights, dtype=tf.float32)
         self.encoder = tf.keras.Sequential([
             Input(shape=(input_size,)),
             Dense(500, activation='relu'),
@@ -40,11 +42,15 @@ class AE(keras.Model):
     
     @tf.function
     def train_step(self, data):
-        loss_fn = keras.losses.BinaryCrossentropy()
         with tf.GradientTape() as tape:
             z = self.encoder(data)
             reconstruction = self.decoder(z)
-            loss = loss_fn(data, reconstruction)
+            if self.feature_weights is None:
+                loss = keras.losses.BinaryCrossentropy()(data, reconstruction)
+            else:
+                # weighted-mean BCE over features (w sums to 1 => same scale as the mean BCE)
+                bce = K.binary_crossentropy(data, reconstruction)          # (batch, D)
+                loss = tf.reduce_mean(tf.reduce_sum(bce * self.feature_weights, axis=1))
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         self.total_loss_tracker.update_state(loss)
@@ -52,8 +58,11 @@ class AE(keras.Model):
     
     @tf.function
     def test_step(self, data):
-        loss_fn = keras.losses.BinaryCrossentropy()
         z = self.encoder(data)
         reconstruction = self.decoder(z)
-        loss = loss_fn(data, reconstruction)
+        if self.feature_weights is None:
+            loss = keras.losses.BinaryCrossentropy()(data, reconstruction)
+        else:
+            bce = K.binary_crossentropy(data, reconstruction)
+            loss = tf.reduce_mean(tf.reduce_sum(bce * self.feature_weights, axis=1))
         return {"loss": loss}

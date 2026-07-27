@@ -92,11 +92,18 @@ class GMM(Layer):
 
 # define class of the AE model
 class VADE(keras.Model):
-    def __init__(self, original_size, n_centroid, **kwargs):
+    def __init__(self, original_size, n_centroid, loss_weights=None, marginal_entropy_beta=0.0, marginal_kl_beta=0.0, marginal_kl_target=None, **kwargs):
         super().__init__(**kwargs)
         # add class GMM as one layer
         self.original_size = original_size
         self.n_centroid = n_centroid
+        # Phase 4: weight of the marginal-entropy regularizer (0.0 => OFF => byte-identical baseline)
+        self.marginal_entropy_beta = float(marginal_entropy_beta)
+        # Phase 4b: KL-to-target on the sorted marginal (0.0 => OFF). target = desired UNEQUAL size shape.
+        self.marginal_kl_beta = float(marginal_kl_beta)
+        self.marginal_kl_target = (tf.constant(marginal_kl_target, dtype=tf.float32) if marginal_kl_target is not None else None)
+        # Phase 2: optional per-feature BCE weights (None => unmodified loss, byte-identical baseline)
+        self.feature_weights = None if loss_weights is None else tf.constant(loss_weights, dtype=tf.float32)
         self.gmm = GMM(n_centroid)
         self.encoder = self.build_encoder()
         self.decoder = self.build_decoder()
@@ -192,9 +199,21 @@ class VADE(keras.Model):
         -tf.reduce_sum(tf.math.log(tf.tile(tf.expand_dims(self.gmm.theta_p,0),[batch_size,1]))*gamma,axis=-1)\
         +tf.reduce_sum(tf.math.log(gamma)*gamma,axis=-1)  # shape: (batch_size,)
         kl_loss = tf.reduce_mean(kl_loss) # average through batch size
-        # calculate entropy
-        #normalized_entropy = self.calculate_entropy(gamma) / math.log(gamma.shape[1])
-        #loss = kl_loss - normalized_entropy * 70
+        # Phase 4: optional marginal-entropy regularizer (RIM Krause NeurIPS'10 / IMSAT Hu ICML'17 /
+        # IIC Ji ICCV'19). beta==0 (default) => term skipped => byte-identical baseline. beta>0
+        # maximizes H(p_bar) = entropy of the batch-average GMM responsibility, anchoring the marginal
+        # cluster distribution so the per-cluster mixing proportions stop wandering across seeds.
+        if self.marginal_entropy_beta > 0.0:
+            norm_entropy = self.calculate_entropy(gamma) / tf.math.log(tf.cast(self.n_centroid, tf.float32))
+            kl_loss = kl_loss - self.marginal_entropy_beta * norm_entropy
+        # Phase 4b: KL(sorted(p_bar) || target) — anchor the marginal SHAPE to a fixed UNEQUAL target
+        # so proportions become reproducible across seeds WITHOUT being forced uniform. OFF by default.
+        if self.marginal_kl_beta > 0.0 and self.marginal_kl_target is not None:
+            p_bar = tf.reduce_mean(gamma, axis=0)
+            sorted_p = tf.sort(p_bar, direction='DESCENDING')
+            tgt = self.marginal_kl_target
+            kl_to_target = tf.reduce_sum(sorted_p * (tf.math.log(sorted_p + 1e-10) - tf.math.log(tgt + 1e-10)))
+            kl_loss = kl_loss + self.marginal_kl_beta * kl_to_target
         return kl_loss
     
 
@@ -212,11 +231,15 @@ class VADE(keras.Model):
 
     @tf.function
     def train_step(self, data):
-        loss_fn = keras.losses.BinaryCrossentropy()
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder(data)
             reconstruction = self.decoder(z)
-            reconstruction_loss = loss_fn(data, reconstruction)*self.original_size
+            if self.feature_weights is None:
+                reconstruction_loss = keras.losses.BinaryCrossentropy()(data, reconstruction)*self.original_size
+            else:
+                # weighted recon; (w * original_size) sums to original_size => uniform == the line above
+                bce = K.binary_crossentropy(data, reconstruction)          # (batch, D)
+                reconstruction_loss = tf.reduce_mean(tf.reduce_sum(bce * (self.feature_weights * self.original_size), axis=1))
             # calculate vae loss according to the vae loss function
             kl_loss = self.calculate_kl_loss(z, z_mean, z_log_var)
             loss = reconstruction_loss + kl_loss
@@ -234,12 +257,15 @@ class VADE(keras.Model):
     
     @tf.function
     def test_step(self,data):
-        loss_fn = keras.losses.BinaryCrossentropy()
         if isinstance(data, tuple):
             data = data[0]
         z_mean, z_log_var, z = self.encoder(data)
         reconstruction = self.decoder(z)
-        reconstruction_loss = loss_fn(data, reconstruction)*self.original_size
+        if self.feature_weights is None:
+            reconstruction_loss = keras.losses.BinaryCrossentropy()(data, reconstruction)*self.original_size
+        else:
+            bce = K.binary_crossentropy(data, reconstruction)
+            reconstruction_loss = tf.reduce_mean(tf.reduce_sum(bce * (self.feature_weights * self.original_size), axis=1))
         # calculate vae loss according to the vae loss function
         kl_loss = self.calculate_kl_loss(z, z_mean, z_log_var)
         loss = reconstruction_loss + kl_loss

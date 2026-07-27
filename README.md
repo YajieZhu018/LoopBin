@@ -1,112 +1,109 @@
 # LoopBin
-LoopBin, an unsupervised neural network adapted from the variational deep embedding (VADE) model to cluster chromatin loops based on genome interaction and protein binding profiles. It learns the genomic features captured by micro-C and Cut&amp;Tag data in a latent space and separates the latent representations in a clustering model. By applying the framework to different comparison settings, we can quantify loop types and understand the dynamic shifting in response to changes in cellular context. 
-![Alt text](images/model.png)
+
+LoopBin is an unsupervised neural network — adapted from the **Variational Deep Embedding (VaDE)** model —
+that **clusters chromatin loops** by their genome-interaction (Micro-C) and protein-binding (CUT&Tag /
+ChIP-seq) profiles. It embeds each loop's Micro-C contact map together with its mark signal into a latent
+space and separates them with a Gaussian-mixture clustering head, so you can quantify loop *types* and how
+they shift between cellular conditions.
+
+![model](images/model.png)
+
+## Install
+
+LoopBin is an installable package that provides a `loopbin` command.
+
+```bash
+git clone https://github.com/astudentfromsustech/LoopBin
+cd LoopBin
+conda env create --file loopbin.yml      # the `loopbin` env (Python 3.7, TensorFlow 2.5)
+conda activate loopbin
+pip install -e .                          # installs the `loopbin` CLI
+```
+
+`loopbin --help` lists the commands; `loopbin <command> --help` shows a command's flags.
+(For back-compatibility, `python main.py <command> …` also works.)
+
+## Inputs
+
+| Input | What |
+|---|---|
+| `.bedpe` | loop-anchor coordinates |
+| `.mcool` | Micro-C contact matrix — **must contain a balanced `/resolutions/<res>`** (default 8000; the example builds it) |
+| `.bw`   | one bigWig per mark (e.g. CTCF, SMC1A, H3K27ac, H3K27me3) |
+
+Training data for the paper: <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE178593>.
+
+## The pipeline
+
+LoopBin runs as a sequence of commands; intermediate files pass between steps by folder convention.
+
+```bash
+# 1. preprocess each mark: bigWig -> per-chromosome bedgraph
+loopbin preprocess -b CTCF.bw -n CTCF -g bedgraph/ -res 8000 -cs hg38.chrom.sizes
+
+# 2. process each condition: loops + mcool + marks -> npy
+loopbin process -l loops.bedpe -c matrix_8kb.mcool -g bedgraph/ \
+        -p CTCF,H3K27ac,H3K27me3,SMC1A -r 8 -u out/cond/ -res 8000
+
+# 3. normalize + co-normalize the conditions together
+loopbin normalize -e control,degron -u out/
+
+# 4. pretrain the autoencoder
+loopbin pretrain -d out/merged_log_data.npy -u pretrain/ -s 1 -t 16
+
+# 5. train VaDE + cluster
+loopbin train -num 7 -d out/merged_log_data.npy -if_pre True -pre pretrain/ \
+        -ep 2000 -u train/ -p CTCF,H3K27ac,H3K27me3,SMC1A -s 1 -t 16
+
+# 6. predict per-condition clusters -> all_clusters.pdf
+loopbin cluster -d out/cond/log_data.npy -m train/ -u cluster/cond/ \
+        -p CTCF,H3K27ac,H3K27me3,SMC1A
+
+# optional: merge tiny clusters (e.g. <~2 % of loops)
+loopbin merge -k 2,3 -d out/merged_log_data.npy -u merged/ -p CTCF,H3K27ac,H3K27me3,SMC1A
+```
+
+| command | role | key flags |
+|---|---|---|
+| `preprocess` | bigWig → bedgraph | `-b -n -g -res -cs` |
+| `process` | loops+mcool+marks → npy | `-l -c -g -p -r -u -res` |
+| `normalize` | merge + co-normalize conditions | `-e -u` |
+| `pretrain` | pretrain the autoencoder | `-d -u -s -t` |
+| `train` | train VaDE + cluster | `-num -d -ep -pre -if_pre -u -p -s -t` |
+| `cluster` | predict with a trained model | `-d -m -u -p` |
+| `merge` | merge small clusters | `-d -u -k -p` |
+
+## Reproducibility — `-s/--seed`, `-t/--threads`
+
+VaDE training is seed-sensitive. LoopBin makes a run **reproducible**: at a fixed seed the result is
+**bit-identical** (every RNG is seeded — including the pretrain autoencoder — and TensorFlow deterministic
+ops are enabled).
+
+- `-s/--seed N` — random seed. Precedence: flag > `$LOOPBIN_SEED` > built-in default 73. (The example pins `-s 1`.)
+- `-t/--threads N` — CPU threads. Precedence: flag > `$LOOPBIN_THREADS` > 16. Reproducibility holds at any
+  **fixed** thread count — keep it the same across `pretrain` and `train`.
+
+> The *effective* cluster count is stochastic across **different** seeds (the paper's runs return 5–7 even at
+> a fixed `-num`). Run a few seeds and keep a clean draw.
+
+## Example — DLD-1 (GSE178593)
+
+`example/` reproduces the paper's per-cluster Micro-C + CUT&Tag figure (`all_clusters.pdf`) on the published
+DLD-1 data:
+
+```bash
+bash example/scripts/0_download_GSE178593.sh     # bigWigs + Micro-C mcools from GEO -> example/example_data/
+# put the loop calls in example/example_data/{control,degron}_loops_labeled.bedpe
+bash example/scripts/1_run_pipeline.sh           # builds the 8 kb mcool, then runs the full pipeline
+```
+
+Output: `example/run_output/.../all_clusters.pdf`. See **`example/README.md`** for the data sources, the
+8 kb-mcool requirement, and the seed/reproducibility notes.
+
+## Citation
+
+If you use LoopBin, please cite the LoopBin preprint (bioRxiv, 2026; DOI 10.64898/2026.01.13.699359).
 
 ## Authors
-Yajie Zhu, Alexis Bel
 
-## Installation
-Clone the repo and install the dependencies:
-```bash
-git clone https://github.com/YajieZhu018/LoopBin
-conda env create --file loopbin.yml
-conda activate loopbin
-```
-
-## Data
-This pipeline requires:
-1. A .bedpe file containing the coordinate of loop anchors.
-2. A .mcool file containing the micro-C interaction.
-3. Several .bigwig files containing the protein binding profiles like CTCF, cohesin, H3K27ac and H3K27me3 captured by ChIP-seq or Cut&Tag techniques.
-The data that we used to train the model can be downloaded from https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE178593.
-
-## Implement
-```bash
-python main.py -f FUNCTION --arguements
-```
-⭐Step 1. Preprocessing bigwig
-```bash
-python main.py -f preprocess -b BIGWIG_FILE -g OUTPUT_FOLDER -n BIGWIG_NAME
-```
--b: the bigwig file to be preprocessed into bedgraphs
-
--g: the output folder
-
--n: which protein binding profile is used, such as CTCF, H3K27ac, H3K27me3, or SMC1A
-
-
-⭐Step 2. Processing input data
-```bash
-python main.py -f process -l LOOP_FILE -c COOL_FILE -g PROCESSED_DATA_FOLDER -r PROCESSOR -u OUTPUT_FOLDER
-```
--l: the .bedpe file containing the coordinates of loop anchors
-
--c: the .mcool file
-
--g: the folder containing the bedgraph files from epigenetic features, output from the step 1
-
--r: the number of processors
-
--u: the output folder 
-
-Normalize and merge input data from different conditions
-```bash
-python main.py -f normalize -e CONDITION1,CONDITION2,... -u OUTPUT_FOLDER
-```
--e: conditions to merge. They are the names of the subfolder where we store the individual processed data
-
--u: the output folder
-
-
-⭐Step 3. Pretrain the AE model
-```bash
-python main.py -f pretrain -d INPUT_DATA -u OUTPUT_FOLDER
-```
--d: the processed input data
-
--u: the output folder
-
-
-⭐Step 4. Train the VADE model
-```bash
-python main.py -f train -num NUMBER_CLUSTERS -d INPUT_DATA -if_pre True -pre PRETRAINED_MODEL -ep NUMBER_EPOCHS -u OUTPUT_FOLDER -p NAME1,NAME2,...
-```
--num: the number of clusters, set by the users based on experiences and domain knowledges
-
--d: the processed input data
-
--if_pre: if used pretrained model. Set True by default
-
--pre: the pretrained AE model, output from the pretraining step
-
--ep: the number of epochs
-
--u: the output folder
-
--p: Names of the CUT&TAG separated by comma. The default is CTCF,H3K27ac,H3K27me3,SMC1A
-
-
-⭐Step 5. Predict clusters
-```bash
-python main.py -f cluster -d INPUT_DATA -m MODEL -u OUTPUT_FOLDER
-```
--d: the processed input data
-
--m: the trained model
-
--u: the output folder
-
-⭐Step 6. Merge small clusters (optional)
-If the model outputs undesirable small clusters, like which contains less than 2% of loops, you can choose to merge them with others. 
-```bash
-python main.py -f merge -k 2,3 -d INPUT_DATA -u $OUTPUT_FOLDER -p NAME1,NAME2,...,
-```
--k: labels of the clusters to merge separated by comma such as 2,3
-
--d: the processed input data
-
--u: the output folder
-
--p: Names of the CUT&TAG separated by comma.
-
-
+Yajie Zhu, Alexis Bel.
