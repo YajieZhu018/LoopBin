@@ -24,6 +24,8 @@ of clusters.
 """
 
 import sys
+
+from .preprocess import res_suffix
 import os
 import numpy as np
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
@@ -63,7 +65,7 @@ def verif_preprocess(arguments):
         #sys.exit("Only four names available: SMC1A, CTCF, H3K27ac, H3K27me3")
 
     verif_folder(database_folder)
-    print(f"File {preprocess_file} detected. Bedgraph files chr?_{name}{int(arguments.resolution)//1000}K will\
+    print(f"File {preprocess_file} detected. Bedgraph files chr?_{name}{res_suffix(arguments.resolution)} will\
            be put in {database_folder}")
 
 

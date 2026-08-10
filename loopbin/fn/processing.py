@@ -18,6 +18,8 @@ import cooler
 import numpy as np
 from tqdm import tqdm
 
+from .preprocess import res_suffix
+
 # Micro-C / bedgraph resolution in bp. Module-level so the per-loop builders (cool_to_matrix,
 # the 16x16 window math, the bedgraph filename "<res/1000>K" suffix) all read one value.
 # Default 10000; overridden by process() from the --resolution CLI flag.
@@ -119,7 +121,7 @@ def create_list_epi(file_epi, epigenetics_path):
     for chrom in chromosome:
         new_sample_name[chrom] = []
         for name in file_epi:
-            new_sample_name[chrom].append(epigenetics_path + "/" + chrom + "_" + name + f"{RESOLUTION//1000}K.bedgraph")
+            new_sample_name[chrom].append(epigenetics_path + "/" + chrom + "_" + name + res_suffix(RESOLUTION) + ".bedgraph")
     return new_sample_name
 
 

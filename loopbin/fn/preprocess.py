@@ -33,8 +33,22 @@ def read_chrom_sizes(path):
     return sizes
 
 
-def _suffix(resolution):
-    return f"{resolution // 1000}K"
+def res_suffix(resolution):
+    """Bedgraph filename suffix for a bin size, in bp.
+
+    Whole-kb resolutions keep the historical "<n>K" form so existing 1K/2K/5K/10K
+    bedgraphs stay byte-identical. Sub-kb (and non-round) resolutions get an explicit
+    "<n>bp" form -- the old res//1000 collapsed every sub-kb value to "0K", so 200 bp
+    and 500 bp would have written to the same filename.
+    """
+    resolution = int(resolution)
+    if resolution >= 1000 and resolution % 1000 == 0:
+        return f"{resolution // 1000}K"
+    return f"{resolution}bp"
+
+
+# backwards-compatible alias (internal callers)
+_suffix = res_suffix
 
 
 def _one_chrom(task):
