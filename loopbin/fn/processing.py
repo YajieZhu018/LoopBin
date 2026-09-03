@@ -14,9 +14,7 @@ The main function is input_creator_r that will run the function task()
 import multiprocessing
 import os
 import sys
-import cooler
 import numpy as np
-from tqdm import tqdm
 
 from .preprocess import res_suffix
 
@@ -301,6 +299,12 @@ def input_creator_r(loop_file, cool_file, bedgraph, proteins, n_cpu):
     loop = read_file(loop_file)
     output = []
     i = -1
+    # imported here, not at module scope: cooler/tqdm are only needed by the process
+    # stage, and the training venv (see requirements.txt) deliberately omits them, so a
+    # top-level import breaks `main.py -f train/cluster/merge`, which need create_data
+    # from this module.
+    import cooler
+    from tqdm import tqdm
     hic = cooler.Cooler(cool_file)
     with multiprocessing.Pool(n_cpu) as pool:
         results = []
@@ -530,6 +534,7 @@ def process(loop_file, hic, bedgraph, proteins, nbr_cpu, folder, resolution=1000
     Returns:
         None
     """
+    import cooler  # see the matching local import in input_creator_r for why this isn't at module scope
     global RESOLUTION, CHROMS
     RESOLUTION = int(resolution)
     CHROMS = list(cooler.Cooler(hic).chromnames)   # genome from the data, not hardcoded

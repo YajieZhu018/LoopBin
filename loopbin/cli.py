@@ -156,6 +156,45 @@ def parse_arguments():
     tr.add_argument("-ep", dest="epoch_number", default=1000, help="epochs")
     tr.add_argument("-u", dest="folder", help="output folder")
     tr.add_argument("-p", dest="proteins", default=PROT)
+    tr.add_argument("-train_pi", dest="trainable_pi", default="False",
+                    help="True to let the GMM prior mixture weights (theta_p / pi) train "
+                         "instead of staying frozen at uniform 1/k (default False). "
+                         "Superseded by -pi_mode when that is given.")
+    tr.add_argument("-mw", dest="metric_weights", default="1,1,1",
+                    help="GMM candidate scoring weights as separation,assignment_confidence,"
+                         "log_likelihood such as 1,0,0 for separation only (default 1,1,1). "
+                         "Ignored when -gmm_prior is given.")
+    tr.add_argument("-gmm_prior", dest="gmm_prior", default=None,
+                    help="Path to a pickled, already-fitted sklearn GaussianMixture to use "
+                         "as the prior (u_p / lambda_p / theta_p) instead of refitting "
+                         "candidates and selecting one. Use this to hold the prior fixed "
+                         "across arms of an experiment -- refitting picks a different "
+                         "candidate on different hardware.")
+    tr.add_argument("-pi_mode", dest="pi_mode", default=None,
+                    help="How the GMM prior weights (theta_p / pi) are handled: "
+                         "uniform_fixed (default, frozen at 1/k), gmm_fixed (frozen at the "
+                         "pretrained GMM's weights), em (frozen w.r.t. gradients, updated by "
+                         "a damped periodic EM M-step), gradient (trained by backprop -- "
+                         "collapses, see run_report.md). Takes precedence over -train_pi.")
+    tr.add_argument("-pi_em_every", dest="pi_em_every", default="10",
+                    help="EM M-step cadence in epochs (default 10)")
+    tr.add_argument("-pi_em_warmup", dest="pi_em_warmup", default="50",
+                    help="Epochs to hold pi at its initial value before the first M-step "
+                         "(default 50)")
+    tr.add_argument("-pi_em_rho", dest="pi_em_rho", default="0.3",
+                    help="EMA damping for the M-step: pi <- (1-rho)*pi + rho*mean(gamma) "
+                         "(default 0.3)")
+    tr.add_argument("-pi_floor", dest="pi_floor", default="0.01",
+                    help="Lower bound on pi during early training, so a shrinking component "
+                         "stays recoverable (default 0.01)")
+    tr.add_argument("-pi_floor_hold", dest="pi_floor_hold", default="150",
+                    help="Last epoch at which the floor is still at its full value "
+                         "(default 150)")
+    tr.add_argument("-pi_floor_ramp_end", dest="pi_floor_ramp_end", default="300",
+                    help="Epoch by which the floor has ramped linearly to 0 (default 300)")
+    tr.add_argument("-ckpt_epochs", dest="ckpt_epochs", default="",
+                    help="Comma-separated epochs to checkpoint the model at, such as "
+                         "150,300,400,500. Empty (default) disables intermediate checkpoints.")
     _seed_threads(tr)
     tr.set_defaults(func=train_vade)
 
@@ -265,16 +304,97 @@ def cluster_data_inner_func(data, vade, loop_path, output_path, list_epic):
 
 # Custom callback to save every 200 epochs
 class SaveEveryNEpoch(tf.keras.callbacks.Callback):
-    def __init__(self, save_freq, save_path):
+    def __init__(self, save_freq, save_path, save_epochs=None):
         super(SaveEveryNEpoch, self).__init__()
         self.save_freq = save_freq
         self.save_path = save_path
+        # explicit epochs to checkpoint at, on top of (or instead of) the fixed cadence
+        self.save_epochs = set(save_epochs or [])
 
     def on_epoch_end(self, epoch, logs=None):
-        if (epoch + 1) % self.save_freq == 0:  # Save every `save_freq` epochs
-            save_filepath = os.path.join(self.save_path, f'model_epoch_{epoch + 1}/')
+        current = epoch + 1
+        due = (self.save_freq and current % self.save_freq == 0) or current in self.save_epochs
+        if due:
+            save_filepath = os.path.join(self.save_path, f'model_epoch_{current}/')
             self.model.save(save_filepath)
             print(f"Checkpoint saved: {save_filepath}")
+
+
+def make_floor_schedule(floor, hold, ramp_end):
+    """
+    Lower bound on pi as a function of epoch: held at `floor` through `hold`, then ramped
+    linearly to 0 at `ramp_end`, then 0.
+
+    The floor is what makes the EM arm different from the trainable-theta arm: while it is
+    active no component can be squeezed out, so a cluster that briefly loses mass can win
+    it back once the encoder settles. Releasing it afterwards is what lets genuinely
+    redundant components actually go away.
+    """
+    if ramp_end <= hold:
+        raise ValueError(f'pi_floor_ramp_end ({ramp_end}) must be greater than '
+                         f'pi_floor_hold ({hold})')
+
+    def floor_at(epoch):
+        if epoch <= hold:
+            return floor
+        if epoch >= ramp_end:
+            return 0.0
+        return floor * (ramp_end - epoch) / (ramp_end - hold)
+    return floor_at
+
+
+class EMPriorUpdate(tf.keras.callbacks.Callback):
+    """
+    Update the GMM prior weights pi by a damped, periodic EM M-step instead of by
+    gradient descent.
+
+    Given the encoder, the closed-form optimum of the ELBO for pi is pi_c = mean_n
+    gamma_nc, so each update recomputes gamma over the whole dataset and moves pi a
+    fraction `rho` of the way there. Damping plus the low cadence keeps pi from chasing
+    gamma every step -- that tight coupling is what drove the rich-get-richer collapse in
+    the gradient-trained run -- and the floor keeps shrunken components recoverable.
+
+    gamma is computed from z_mean rather than a sampled z, matching both
+    VADE.calculate_kl_loss and cluster_data_inner_func.
+    """
+    def __init__(self, x_train, every, warmup, rho, floor_schedule, output_path,
+                 batch_size=1024):
+        super(EMPriorUpdate, self).__init__()
+        self.x_train = x_train
+        self.every = every
+        self.warmup = warmup
+        self.rho = rho
+        self.floor_schedule = floor_schedule
+        self.output_path = output_path
+        self.batch_size = batch_size
+        self.history = []
+
+    def on_train_begin(self, logs=None):
+        pi = self.model.gmm.theta().numpy()
+        self.history.append(np.concatenate(([0], pi)))
+        print(f'[EM prior] initial pi = {np.array2string(pi, precision=4)}', flush=True)
+
+    def on_epoch_end(self, epoch, logs=None):
+        current = epoch + 1
+        if current <= self.warmup or (current - self.warmup) % self.every != 0:
+            return
+        z_mean = self.model.encoder.predict(self.x_train, batch_size=self.batch_size,
+                                            verbose=0)[0]
+        pi_hat = self.model.gmm(z_mean).numpy().mean(axis=0)   # M-step optimum
+        pi_old = self.model.gmm.theta().numpy()
+        pi_new = (1 - self.rho) * pi_old + self.rho * pi_hat   # damped
+        floor = self.floor_schedule(current)
+        pi_new = self.model.gmm.assign_theta(pi_new, floor=floor)
+        self.history.append(np.concatenate(([current], pi_new)))
+        print(f'[EM prior] epoch {current}: floor={floor:.5f} '
+              f'alive(pi>1e-3)={int((pi_new > 1e-3).sum())} '
+              f'pi={np.array2string(pi_new, precision=4)}', flush=True)
+
+    def on_train_end(self, logs=None):
+        history = np.asarray(self.history)
+        np.save(f'{self.output_path}/theta_history.npy', history)
+        plotting.plot_theta_history(history, self.output_path,
+                                    floor_schedule=self.floor_schedule)
 
 def pretrain_ae(args):
     """
@@ -314,9 +434,12 @@ def pretrain_ae(args):
     # predict latent space of X_test
     z = ae.encoder(X)
     plotting.plot_score(z, ol)
-    # NOTE: removed `function.set_kmeans(z)` + the model_cluster.pkl dump — set_kmeans is undefined
-    # in src/fn/function.py (crashes pretrain), and the pickle was unused downstream: `train`
-    # refits its own GaussianMixture in vade_model.load_pretrained_weights.
+    # function.set_kmeans is now defined (see loopbin/fn/function.py) -- this is a diagnostic
+    # only; `train` refits its own GaussianMixture in vade_model.load_pretrained_weights and
+    # never reads model_cluster.pkl back.
+    mcluster = function.set_kmeans(z)
+    with open(f'{ol}/model_cluster.pkl', "wb") as file_pointer:
+        pickle.dump(mcluster, file_pointer)
 
 def save_model_each_200_epochs(args):
     """
@@ -353,7 +476,7 @@ def save_model_each_200_epochs(args):
     #vade.summary()
     # load the pretrain model
     if if_pretrain == 'True':
-        vade.load_pretrained_weights(pretrain_model_path,X_train,gmm_name)
+        vade.load_pretrained_weights(pretrain_model_path,X_train,gmm_name,output_path)
     ## Define a learning rate scheduler
     decay_nn = 0.9
     lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
@@ -426,6 +549,33 @@ def train_vade(args):
     # get True if pretrain model is used
     if_pretrain = args.if_pretrain
     epochs = int(args.epoch_number)
+    metric_weights = tuple(float(w) for w in args.metric_weights.split(','))
+    # -pi_mode is the single source of truth; -train_pi is kept working for the older
+    # sbatch scripts that predate it
+    pi_mode = args.pi_mode
+    if pi_mode is None:
+        pi_mode = 'gradient' if args.trainable_pi == 'True' else 'uniform_fixed'
+    valid_pi_modes = ('uniform_fixed', 'gmm_fixed', 'em', 'gradient')
+    if pi_mode not in valid_pi_modes:
+        sys.exit(f'-pi_mode must be one of {valid_pi_modes}, got {pi_mode!r}')
+    floor_schedule = make_floor_schedule(float(args.pi_floor), int(args.pi_floor_hold),
+                                         int(args.pi_floor_ramp_end))
+    ckpt_epochs = [int(e) for e in args.ckpt_epochs.split(',') if e.strip()]
+    gmm_prior = args.gmm_prior
+    if gmm_prior:
+        if not os.path.isfile(gmm_prior):
+            sys.exit(f'-gmm_prior is not a file: {gmm_prior}')
+        print(f'GMM prior pinned to {gmm_prior} (candidate selection skipped, -mw ignored)')
+    else:
+        print(f'GMM metric_weights (separation, confidence, loglik) = {metric_weights}')
+    print(f'prior pi (theta_p) mode = {pi_mode}')
+    if pi_mode == 'em':
+        print(f'  EM M-step: every {args.pi_em_every} epochs after a '
+              f'{args.pi_em_warmup}-epoch warm-up, rho = {args.pi_em_rho}')
+        print(f'  floor: {args.pi_floor} through epoch {args.pi_floor_hold}, '
+              f'ramping to 0 at epoch {args.pi_floor_ramp_end}')
+    if ckpt_epochs:
+        print(f'  checkpoints at epochs {ckpt_epochs}')
     gmm_name = output_path.split('/')[-2]
     # Seed everything + deterministic threading (TF_DETERMINISTIC_OPS is set at module top,
     # before TF import). Same seed/threads as pretrain so the whole run is reproducible.
@@ -437,12 +587,17 @@ def train_vade(args):
     # set vade model
     d_input = X_train.shape[1]
     _klb, _klt = _marginal_kl()
-    vade = VADE(d_input,n_clusters, loss_weights=_loss_weights(d_input), marginal_entropy_beta=_marginal_entropy_beta(), marginal_kl_beta=_klb, marginal_kl_target=_klt)
+    vade = VADE(d_input, n_clusters, trainable_theta=(pi_mode == 'gradient'),
+               loss_weights=_loss_weights(d_input), marginal_entropy_beta=_marginal_entropy_beta(),
+               marginal_kl_beta=_klb, marginal_kl_target=_klt)
     vade(np.zeros((10, d_input)))
     #vade.summary()
     # load the pretrain model
     if if_pretrain == 'True':
-        vade.load_pretrained_weights(pretrain_model_path,X_train,gmm_name)
+        vade.load_pretrained_weights(pretrain_model_path, X_train, gmm_name, output_path,
+                                     metric_weights=metric_weights,
+                                     init_theta_from_gmm=pi_mode in ('gmm_fixed', 'em'),
+                                     prior_gmm_path=gmm_prior)
     ## Define a learning rate scheduler
     lr0 = _learning_rate()          # env LOOPBIN_LR, default 0.002 == baseline
     decay_nn = 0.9
@@ -452,7 +607,16 @@ def train_vade(args):
     # set ae model
     adam_nn= tf.keras.optimizers.Adam(learning_rate=lr0,epsilon=1e-4)
     vade.compile(optimizer=adam_nn)
-    history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=2)
+    callbacks = [lr_scheduler]
+    if pi_mode == 'em':
+        callbacks.append(EMPriorUpdate(X_train, int(args.pi_em_every),
+                                       int(args.pi_em_warmup), float(args.pi_em_rho),
+                                       floor_schedule, output_path))
+    if ckpt_epochs:
+        callbacks.append(SaveEveryNEpoch(None, os.path.join(output_path, 'checkpoints'),
+                                         save_epochs=ckpt_epochs))
+        os.makedirs(os.path.join(output_path, 'checkpoints'), exist_ok=True)
+    history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=callbacks, verbose=2)
     # save the model
     vade.save(output_path)
     # plot loss of the model
@@ -522,7 +686,7 @@ def train_vade_with_test(args):
     #vade.summary()
     # load the pretrain model
     if if_pretrain == 'True':
-        vade.load_pretrained_weights(pretrain_model_path,X_train,gmm_name)
+        vade.load_pretrained_weights(pretrain_model_path,X_train,gmm_name,output_path)
     ## Define a learning rate scheduler
     decay_nn = 0.9
     lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
@@ -552,6 +716,7 @@ def calculate_generalizability(args):
     determine the cluster number based on generalizability
     """
     from sklearn.model_selection import KFold
+    from sklearn.metrics import silhouette_score, calinski_harabasz_score
     # get input
     data_path = args.file
     pretrain_model_path = args.pretrained_model
@@ -578,7 +743,8 @@ def calculate_generalizability(args):
     )
     # initialize dic to store generalizability
     dic_g = {'g':{}, 'g recon':{}, 'g kl':{}, 'train loss':{}, 'test loss':{}, 
-             'train recon loss':{}, 'test recon loss':{}, 'train kl loss':{}, 'test kl loss':{}, 'N cluster':{}, 'N all cluster':{}}
+             'train recon loss':{}, 'test recon loss':{}, 'train kl loss':{}, 'test kl loss':{}, 'N cluster':{}, 'N all cluster':{},
+             'seed':{}, 'silhouette':{}, 'calinski':{}}
     for n_clusters in range(4,11):
         # create n_cluster as key and empty list as value
         dic_g['g'][n_clusters] = []
@@ -592,12 +758,16 @@ def calculate_generalizability(args):
         dic_g['test kl loss'][n_clusters] = []
         dic_g['N cluster'][n_clusters] = []
         dic_g['N all cluster'][n_clusters] = []
+        dic_g['seed'][n_clusters] = []
+        dic_g['silhouette'][n_clusters] = []
+        dic_g['calinski'][n_clusters] = []
+        # set vade model
         vade = VADE(d_input,n_clusters)
         vade(np.zeros((10, d_input)))
         #vade.summary()
         # load the pretrain model
         if if_pretrain == 'True':
-            vade.load_pretrained_weights(pretrain_model_path,X,gmm_name)
+            vade.load_pretrained_weights(pretrain_model_path,X,gmm_name,output_path)
         # set ae model
         adam_nn= tf.keras.optimizers.Adam(learning_rate=0.002,epsilon=1e-4)
         vade.compile(optimizer=adam_nn)
@@ -605,11 +775,18 @@ def calculate_generalizability(args):
         # Define cross-validation
         kf = KFold(n_splits=5, shuffle=True, random_state=42)
         # Initialize dict to store errors
-        dic_err = {'train':[], 'test':[], 'train_recon':[],'test_recon':[], 'train_kl':[],'test_kl':[], 'N_cluster':[], 'N_all_cluster':[]}
+        dic_err = {'train':[], 'test':[], 'train_recon':[],'test_recon':[], 'train_kl':[],'test_kl':[], 'N_cluster':[], 'N_all_cluster':[],
+                   'seed':[], 'silhouette':[], 'calinski':[]}
         # Perform cross-validation
         loss_fn = tf.keras.losses.BinaryCrossentropy()
         for train_index, test_index in kf.split(X):
             X_train, X_test = X[train_index], X[test_index]
+            # random select a seed
+            seed = random.randint(1,100)
+            # set seed
+            random.seed(seed)
+            np.random.seed(seed)
+            tf.random.set_seed(seed)
             history = vade.fit(X_train, shuffle=True, batch_size=256, epochs=epochs, callbacks=[lr_scheduler],verbose=1,validation_data=(X_test, X_test))
             for data, key in [(X_train,'train'), (X_test,'test')]:
                 z_mean, z_log_var, z = vade.encoder.predict(data)
@@ -642,6 +819,19 @@ def calculate_generalizability(args):
                     # save the real cluster number
                     dic_err['N_all_cluster'].append(len(np.unique(cluster)))
                     dic_err['N_cluster'].append(len(labels))
+                else:
+                    cluster = np.argmax(vade.gmm(z_mean),axis=1)
+                    # get the silhouette score
+                    if len(np.unique(cluster)) > 1:
+                        silhouette = silhouette_score(z_mean, cluster)
+                        # get calinski harabasz score
+                        calinski = calinski_harabasz_score(z_mean, cluster)
+                    else:
+                        silhouette = 0
+                        calinski = 0
+                    dic_err['silhouette'].append(float(silhouette))
+                    dic_err['calinski'].append(float(calinski))
+            dic_err['seed'].append(seed)
         # Calculate generalization as train error / test error for each fold
         generalization = list(np.array(dic_err['train']) / np.array(dic_err['test']))
         g_recon = list(np.array(dic_err['train_recon']) / np.array(dic_err['test_recon']))
@@ -658,6 +848,9 @@ def calculate_generalizability(args):
         dic_g['test kl loss'][n_clusters] = dic_err['test_kl']
         dic_g['N cluster'][n_clusters] = dic_err['N_cluster']
         dic_g['N all cluster'][n_clusters] = dic_err['N_all_cluster']
+        dic_g['seed'][n_clusters] = dic_err['seed']
+        dic_g['silhouette'][n_clusters] = dic_err['silhouette']
+        dic_g['calinski'][n_clusters] = dic_err['calinski']
     # save g
     import json
     with open(f'{output_path}/generalizability_vs_set_num_clusters.json', 'w') as json_file:
@@ -695,6 +888,18 @@ def calculate_generalizability(args):
         plt.legend()
         subname=subkey.strip()
         plt.savefig(f'{output_path}{subname}_loss_vs_actual_num_cluster.pdf')
+        plt.close()
+    # plot silhouette and calinski
+    for err in ['silhouette', 'calinski']:
+        x = list(new_dict[err].keys())
+        y_means = [np.mean(values) for values in new_dict[err].values()]
+        y_stds = [np.std(values) for values in new_dict[err].values()]
+        plt.errorbar(x, y_means, yerr=y_stds, fmt='o', capsize=5, capthick=2, marker='s', linestyle='-', label=f'{err.capitalize()}')
+        plt.xlabel("N of actual clusters")
+        plt.ylabel(f'{err}')
+        plt.title(f"{err} with standard deviation of each cluster number")
+        plt.legend()
+        plt.savefig(f'{output_path}{err}_vs_actual_num_cluster.pdf')
         plt.close()
 
 

@@ -12,8 +12,23 @@ tf.keras.backend.set_floatx('float32')
 
 # define class of the AE model
 class AE(keras.Model):
-    def __init__(self, input_size, loss_weights=None, **kwargs):
+    def __init__(self, input_size, loss_weights=None, latent_activation='relu', **kwargs):
+        """
+        latent_activation: activation on the 10-unit bottleneck. Defaults to 'relu'
+        (the original, and what every published trial under trials/ was trained with).
+        Pass None for a linear bottleneck -- under investigation because 'relu' has two
+        known costs here: (1) a bottleneck unit whose pre-activation goes negative for
+        every sample outputs exactly 0 with exactly 0 gradient, permanently, which is
+        the "dead latent dim" failure documented in
+        scripts/gmm_metric_validation/run_report.md (5-8 of 10 dims dead); and (2) it
+        confines the latent to the non-negative orthant with a mass spike at 0, which
+        the Gaussian mixture fitted on it (select_balanced_gmm, and VADE's GMM layer)
+        is misspecified for. Note VADE's own encoder already uses a *linear* z_mean
+        (vade_model.py:build_encoder), so 'relu' also makes the pretrained bottleneck
+        inconsistent with the layer its weights get loaded into.
+        """
         super().__init__(**kwargs)
+        self.latent_activation = latent_activation
         # Phase 2: optional per-feature BCE weights (None => unmodified loss, byte-identical baseline)
         self.feature_weights = None if loss_weights is None else tf.constant(loss_weights, dtype=tf.float32)
         self.encoder = tf.keras.Sequential([
@@ -21,7 +36,7 @@ class AE(keras.Model):
             Dense(500, activation='relu'),
             Dense(500, activation='relu'),
             Dense(2000, activation='relu'),
-            Dense(10, activation='relu')
+            Dense(10, activation=latent_activation)
         ])
         self.decoder = tf.keras.Sequential([
             Input(shape=(10,)),

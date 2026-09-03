@@ -273,3 +273,20 @@ def give_best(lat_space, method='kmeans'):
             return len(unique_labels[unique_labels != -1])
     else:
         raise ValueError("Invalid method. Supported methods are 'kmeans', 'gmm', 'agglomerative', or 'dbscan'.")
+
+
+def set_kmeans(lat_space):
+    """
+    Set up K-Means clustering with the optimal number of clusters.
+
+    Args:
+        lat_space (ndarray): Latent space data.
+
+    Returns:
+        KMeans: Fitted KMeans model using the optimal number of clusters
+        found by give_best.
+    """
+    n_clusters = give_best(lat_space, method='kmeans')
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0)
+    kmeans.fit(lat_space)
+    return kmeans

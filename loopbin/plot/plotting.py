@@ -12,6 +12,7 @@ from sklearn.metrics import silhouette_score
 from kneed import KneeLocator
 import os
 import seaborn as sns
+from matplotlib.backends.backend_pdf import PdfPages
 
 
 def plot_cluster_to_exam(x_image, x_rec,nbr):
@@ -258,9 +259,13 @@ def plot_cluster(separated_arrays, labels, separated_reconstruction, save_name_p
         plt.clf()
 
 
-def plot_all_clusters(separated_arrays, labels, out_folder, list_epic):
+def _cluster_averages(separated_arrays, labels):
     """
-    Average plot of each channel as column and each cluster as row
+    Per-cluster average image, split into channels.
+
+    Returns (dict_clusters, vmin_shared, vmax_shared) where dict_clusters[cluster] is a
+    list of (16,16) arrays (one per channel) and vmin_shared/vmax_shared are per-channel
+    limits pooled over every cluster.
     """
     dict_clusters = {}
     vmin_loop = []
@@ -268,54 +273,155 @@ def plot_all_clusters(separated_arrays, labels, out_folder, list_epic):
     # loop through each cluster
     for i in np.unique(labels):
         # calcuate the average of the cluster
-        average_clusters = np.mean(separated_arrays[i], axis=0) # shape: (16,16,num_channel)
+        average_clusters = np.mean(separated_arrays[i], axis=0)  # shape: (16,16,num_channel)
         # get channel number
         num_channel = average_clusters.shape[2]
-        # split the average cluster into each channel
-        dict_clusters[i] = np.split(average_clusters, num_channel, axis=2)  # list of num_channel of shape: (16,16)
+        # split the average cluster into each channel, squeezing the trailing singleton
+        # axis np.split leaves behind so imshow gets a plain 2-D array
+        dict_clusters[i] = [np.squeeze(c, axis=2)
+                            for c in np.split(average_clusters, num_channel, axis=2)]
         # get the vmin and vmax of each channel
-        vmin_sub = []
-        vmax_sub = []
-        for j in range(num_channel):
-            vmin_sub.append(np.min(dict_clusters[i][j]))
-            vmax_sub.append(np.max(dict_clusters[i][j]))
-        vmin_loop.append(vmin_sub)
-        vmax_loop.append(vmax_sub)
-    # get final vmin and vmax
-    vmin_1 =np.min(vmin_loop,axis=0)
-    vmax_1=np.max(vmax_loop,axis=0)
-    channel_names = ["Micro-C"] + list_epic
-    # set a figure of num_cluster * num_channel
-    plt.clf()
-    num_cluster = len(np.unique(labels))
-    plt.figure(figsize=(1.5*num_channel, 0.5+1.5*num_cluster))
-    # loop through each cluster
-    import matplotlib.gridspec as gridspec
+        vmin_loop.append([np.min(dict_clusters[i][j]) for j in range(num_channel)])
+        vmax_loop.append([np.max(dict_clusters[i][j]) for j in range(num_channel)])
+    # get final vmin and vmax, shared across clusters so the rows stay comparable
+    return dict_clusters, np.min(vmin_loop, axis=0), np.max(vmax_loop, axis=0)
 
-    # Create a gridspec layout with an extra row for the color bar
-    gs = gridspec.GridSpec(num_cluster+1, num_channel, height_ratios=[1]*num_cluster + [0.1])
-    counter = 0
-    for o in np.unique(labels):
+
+def _label_cbar_ends(cbar, vmin, vmax, fontsize):
+    """
+    Tick only the two ends of a horizontal colorbar, pushed outward so neighbouring
+    columns don't collide, and formatted with %g so a narrow range stays readable --
+    %.3f rendered several low-signal panels as "0.002 -> 0.002".
+    """
+    cbar.set_ticks([vmin, vmax])
+    cbar.set_ticklabels([f'{vmin:.3g}', f'{vmax:.3g}'])
+    cbar.ax.tick_params(labelsize=fontsize)
+    labels = cbar.ax.get_xticklabels()
+    if labels:
+        labels[0].set_horizontalalignment('left')
+        labels[-1].set_horizontalalignment('right')
+
+
+def _cluster_grid_page(dict_clusters, uniq, channel_names, mode, vmin_shared, vmax_shared):
+    """
+    One page of the cluster x channel grid.
+
+    mode='shared'    -- every row uses the same per-channel colour limits, so signal
+                        levels are comparable across clusters. One colorbar per column.
+    mode='per_panel' -- every panel is autoscaled to its own min/max and carries its own
+                        colorbar, so faint structure stays visible in low-signal clusters.
+                        Levels are NOT comparable across rows on this page.
+
+    A shared linear scale flattens any cluster whose signal is small relative to the
+    strongest cluster -- on the epigenetic channels (outer products of the flanking
+    signal, so between-cluster ratios get squared) that was most panels. Hence the two
+    pages: read them together.
+    """
+    num_cluster = len(uniq)
+    num_channel = len(channel_names)
+
+    if mode == 'shared':
+        fig = plt.figure(figsize=(1.6 * num_channel, 1.0 + 1.5 * num_cluster))
+        # extra short row at the bottom for the per-column colorbars
+        gs = fig.add_gridspec(num_cluster + 1, num_channel,
+                              height_ratios=[1] * num_cluster + [0.25],
+                              left=0.16, right=0.97, top=0.93, bottom=0.05,
+                              hspace=0.15, wspace=0.15)
+        for row, o in enumerate(uniq):
+            for i in range(num_channel):
+                ax = fig.add_subplot(gs[row, i])
+                ax.imshow(dict_clusters[o][i], cmap="jet",
+                          vmin=vmin_shared[i], vmax=vmax_shared[i])
+                ax.set_xticks([])
+                ax.set_yticks([])
+                if row == 0:
+                    ax.set_title(channel_names[i], fontsize=9)
+                if i == 0:
+                    ax.set_ylabel(f'Cluster {o}', rotation=0, labelpad=35, fontsize=9)
+        # one colorbar per column, spanning the whole channel
         for i in range(num_channel):
-            ax = plt.subplot(gs[counter, i])
-            plt.imshow(dict_clusters[o][i], cmap="jet", vmin=vmin_1[i], vmax=vmax_1[i])
-            if counter == 0:
-                plt.title(channel_names[i])
-            if i == 0:
-                ax.set_ylabel(f'Cluster {o}', rotation=0, labelpad=35)
-        counter += 1
-    # Add a separate color bar for each column in the bottom row
-    for i in range(num_channel):
-        cbar_ax = plt.subplot(gs[num_cluster, i])  # This accesses the color bar row
-        cbar = plt.colorbar(plt.cm.ScalarMappable(cmap="jet", norm=plt.Normalize(vmin=vmin_1[i], vmax=vmax_1[i])),
-                 cax=cbar_ax, orientation='horizontal')
-        cbar.set_ticks([vmin_1[i], vmax_1[i]])
-        cbar.set_ticklabels([f"{vmin_1[i]:.2f}", f"{vmax_1[i]:.2f}"])
-        cbar.ax.tick_params(labelsize=8)
+            cbar_ax = fig.add_subplot(gs[num_cluster, i])
+            cbar = fig.colorbar(
+                plt.cm.ScalarMappable(cmap="jet",
+                                      norm=plt.Normalize(vmin=vmin_shared[i],
+                                                         vmax=vmax_shared[i])),
+                cax=cbar_ax, orientation='horizontal')
+            _label_cbar_ends(cbar, vmin_shared[i], vmax_shared[i], fontsize=7)
+        fig.suptitle('Shared colour scale per channel (comparable across clusters)',
+                     fontsize=10)
+    else:
+        fig = plt.figure(figsize=(1.6 * num_channel, 1.0 + 1.8 * num_cluster))
+        gs = fig.add_gridspec(num_cluster, num_channel,
+                              left=0.16, right=0.97, top=0.93, bottom=0.03,
+                              hspace=0.45, wspace=0.25)
+        for row, o in enumerate(uniq):
+            for i in range(num_channel):
+                # split each cell into the image and a thin colorbar underneath it
+                inner = gs[row, i].subgridspec(2, 1, height_ratios=[1, 0.12], hspace=0.08)
+                ax = fig.add_subplot(inner[0])
+                cbar_ax = fig.add_subplot(inner[1])
+                panel = dict_clusters[o][i]
+                vmin, vmax = float(np.min(panel)), float(np.max(panel))
+                image = ax.imshow(panel, cmap="jet", vmin=vmin, vmax=vmax)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                if row == 0:
+                    ax.set_title(channel_names[i], fontsize=9)
+                if i == 0:
+                    ax.set_ylabel(f'Cluster {o}', rotation=0, labelpad=35, fontsize=9)
+                cbar = fig.colorbar(image, cax=cbar_ax, orientation='horizontal')
+                _label_cbar_ends(cbar, vmin, vmax, fontsize=6)
+        fig.suptitle('Per-panel colour scale (structure visible, NOT comparable across clusters)',
+                     fontsize=10)
+    return fig
 
-    # Adjust the spacing between subplots
-    #plt.subplots_adjust(hspace=0.5, wspace=0.3)  # Adjust these values as necessary
-    plt.tight_layout()
-    # save the plot
-    plt.savefig(f'{out_folder}/all_clusters.pdf')
-    plt.clf()
+
+def plot_all_clusters(separated_arrays, labels, out_folder, list_epic):
+    """
+    Average plot of each channel as column and each cluster as row.
+
+    Writes a two-page PDF: page 1 shares one colour scale per channel across clusters
+    (so signal levels are comparable), page 2 autoscales every panel (so low-signal
+    clusters are still readable). See _cluster_grid_page for why both are needed.
+    """
+    dict_clusters, vmin_shared, vmax_shared = _cluster_averages(separated_arrays, labels)
+    uniq = np.unique(labels)
+    channel_names = ["Micro-C"] + list_epic
+    with PdfPages(f'{out_folder}/all_clusters.pdf') as pdf:
+        for mode in ('shared', 'per_panel'):
+            fig = _cluster_grid_page(dict_clusters, uniq, channel_names, mode,
+                                     vmin_shared, vmax_shared)
+            pdf.savefig(fig)
+            plt.close(fig)
+
+
+def plot_theta_history(theta_history, out_folder, floor_schedule=None):
+    """
+    Trajectory of the GMM prior weights (theta_p / pi) over training.
+
+    Args:
+        theta_history: (n_updates, 1 + n_centroid) array, column 0 the epoch and the
+            remaining columns pi per component -- as saved by main.py's EMPriorUpdate.
+        out_folder: folder to write theta_history.pdf into.
+        floor_schedule: optional callable epoch -> floor, drawn as a dashed reference so
+            a component sitting on the floor is distinguishable from one that has
+            genuinely shrunk.
+    """
+    theta_history = np.asarray(theta_history)
+    epochs = theta_history[:, 0]
+    pis = theta_history[:, 1:]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for c in range(pis.shape[1]):
+        ax.plot(epochs, pis[:, c], marker='o', markersize=2.5, label=f'component {c}')
+    if floor_schedule is not None:
+        ax.plot(epochs, [floor_schedule(int(e)) for e in epochs], 'k--', linewidth=1.2,
+                label='floor')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel(r'$\pi_c$')
+    ax.set_title('GMM prior mixture weights over training')
+    ax.set_yscale('log')
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=7, ncol=2, loc='center left', bbox_to_anchor=(1.01, 0.5))
+    fig.tight_layout()
+    fig.savefig(f'{out_folder}/theta_history.pdf')
+    plt.close(fig)
