@@ -1,0 +1,12 @@
+# Example data (downloaded) + pipeline outputs — too large to commit
+example/example_data/
+example/run_output/
+example/run_*/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
