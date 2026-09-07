@@ -1,12 +1,44 @@
-# Example data (downloaded) + pipeline outputs — too large to commit
+# --- Example data (downloaded) + pipeline outputs — too large to commit ---
 example/example_data/
 example/run_output/
 example/run_*/
 
-# Python bytecode caches
+# --- Python ---
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*.egg-info/
 
-# macOS
+# --- uv-managed virtualenv (see CLAUDE.md: `source .venv/bin/activate`) ---
+.venv/
+
+# --- Personal/cluster-specific job scripts (paths/account not portable) ---
+loopbin/jobs/experiments/
+
+# --- Pipeline data: 00_raw / 01_preprocess / 02_process outputs ---
+data/
+
+# --- SLURM job logs ---
+*.out
+*.err
+
+# --- Large arrays and model checkpoints ---
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.pkl
+*.pb
+*.index
+*.data-[0-9]*-of-[0-9]*
+checkpoint
+
+# --- Claude Code local session state ---
+**/.claude/settings.local.json
+.claude_verify/
+
+# --- editor/tool temp artefacts ---
+*.new
+*.sbatch.tmp.*
+
+# --- macOS ---
 .DS_Store

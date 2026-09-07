@@ -1,0 +1,11 @@
+rank,strategy,mean_ari
+1,oracle,0.219155
+2,confidence_only,0.214353
+3,confidence_loglik,0.214216
+4,naive_loglik,0.212072
+5,loglik_only,0.212072
+6,random_pick,0.210424
+7,equal_current_default,0.207413
+8,separation_confidence,0.205941
+9,separation_loglik,0.205118
+10,separation_only,0.205049

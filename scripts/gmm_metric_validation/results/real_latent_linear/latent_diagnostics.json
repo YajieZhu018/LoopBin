@@ -1,0 +1,68 @@
+{
+  "n_dims": 10,
+  "n_alive_dims": 10,
+  "n_dead_dims": 0,
+  "effective_rank": 9.420606245139743,
+  "per_dim_variance": [
+    0.12961827765843742,
+    0.1317250428974516,
+    0.13848813610116392,
+    0.19519533493633212,
+    0.13794793707062222,
+    0.16470751383956023,
+    0.11314390111001578,
+    0.1358201837917234,
+    0.15417138028131935,
+    0.1309777890126267
+  ],
+  "global_max_abs_corr": 0.1333198815966156,
+  "global_mean_abs_corr": 0.048895464856869866,
+  "within_cluster_max_abs_corr": 0.23444760740533557,
+  "within_cluster_mean_abs_corr": 0.07038365878732711,
+  "n_clusters_valid": 10,
+  "n_clusters_total": 10,
+  "per_cluster_corr": {
+    "0": {
+      "max_abs_corr": 0.28902435088725137,
+      "mean_abs_corr": 0.08836155302780721
+    },
+    "1": {
+      "max_abs_corr": 0.21711677006808644,
+      "mean_abs_corr": 0.08071684694125782
+    },
+    "2": {
+      "max_abs_corr": 0.17245820480948562,
+      "mean_abs_corr": 0.057551279003779536
+    },
+    "3": {
+      "max_abs_corr": 0.19877733686619778,
+      "mean_abs_corr": 0.0736043443219166
+    },
+    "4": {
+      "max_abs_corr": 0.2537383100991577,
+      "mean_abs_corr": 0.06278592910257234
+    },
+    "5": {
+      "max_abs_corr": 0.29216131128361017,
+      "mean_abs_corr": 0.07485905111661842
+    },
+    "6": {
+      "max_abs_corr": 0.1353631986728827,
+      "mean_abs_corr": 0.043053775848358365
+    },
+    "7": {
+      "max_abs_corr": 0.23050982803042586,
+      "mean_abs_corr": 0.08235338184532277
+    },
+    "8": {
+      "max_abs_corr": 0.25855145009458536,
+      "mean_abs_corr": 0.08324692107119937
+    },
+    "9": {
+      "max_abs_corr": 0.2967753132416728,
+      "mean_abs_corr": 0.05730350559443877
+    }
+  },
+  "latent_activation": "linear",
+  "grouping": "selected GMM hard assignments (no ground truth on real data)"
+}

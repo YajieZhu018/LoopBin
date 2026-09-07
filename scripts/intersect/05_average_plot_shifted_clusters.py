@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 il = sys.argv[1]
 ol = f'{il}intersect/03_plot/average_plot_cluster_shift/'
-for j,k in [('0','2')]: #[('0','1'), ('1','4'), ('2','4'), ('4','2'), ('5','2'), ('5','3')]:
+for j,k in [('1','4')]: #[('0','1'), ('1','4'), ('2','4'), ('4','2'), ('5','2'), ('5','3')]:
     images = []
     vmin_loop = []
     vmax_loop = []
@@ -48,6 +48,7 @@ for j,k in [('0','2')]: #[('0','1'), ('1','4'), ('2','4'), ('4','2'), ('5','2'),
         vmax_loop.append(vmax_sub)# show colorbar
     vmin_1 = np.min(vmin_loop,axis=0)
     vmax_1 = np.max(vmax_loop,axis=0)
+    print(vmax_1)
     vmax_1 = [0.24,0.04,0.04,0.1,0.04]
     # use the same color bar as in the cluster plot
     #vmax_1 = [0.2,0.04,0.025,0.22,0.04]

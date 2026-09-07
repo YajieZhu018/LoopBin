@@ -1,0 +1,52 @@
+{
+  "min_weight": {
+    "pooled_rho": -0.60382823698781,
+    "pooled_p": 0.0004108399428023296,
+    "within_dataset_mean_rho": 0.1142787083146572,
+    "per_dataset_rho": {
+      "mild_k10.npz": 0.4787878787878787,
+      "mild_k4.npz": -0.9151515151515152,
+      "mild_k6.npz": 0.779199761307608
+    }
+  },
+  "separation": {
+    "pooled_rho": 0.7738705418380448,
+    "pooled_p": 5.278185097833218e-07,
+    "within_dataset_mean_rho": 0.03790994588881969,
+    "per_dataset_rho": {
+      "mild_k10.npz": -0.6606060606060605,
+      "mild_k4.npz": 0.8909090909090909,
+      "mild_k6.npz": -0.11657319263657127
+    }
+  },
+  "cov_health": {
+    "pooled_rho": -0.2744269134559416,
+    "pooled_p": 0.14221983970827662,
+    "within_dataset_mean_rho": -0.1661055929525138,
+    "per_dataset_rho": {
+      "mild_k10.npz": -0.7454545454545454,
+      "mild_k4.npz": 0.8545454545454544,
+      "mild_k6.npz": -0.6074076879484503
+    }
+  },
+  "assignment_confidence": {
+    "pooled_rho": 0.41464504441883154,
+    "pooled_p": 0.02271148256986408,
+    "within_dataset_mean_rho": 0.10953978336447014,
+    "per_dataset_rho": {
+      "mild_k10.npz": -0.19999999999999998,
+      "mild_k4.npz": 0.9151515151515152,
+      "mild_k6.npz": -0.3865321650581048
+    }
+  },
+  "log_likelihood": {
+    "pooled_rho": 0.6461162447385228,
+    "pooled_p": 0.00011489408429771067,
+    "within_dataset_mean_rho": 0.26921049158002863,
+    "per_dataset_rho": {
+      "mild_k10.npz": 0.7818181818181817,
+      "mild_k4.npz": 0.8909090909090909,
+      "mild_k6.npz": -0.8650957979871867
+    }
+  }
+}

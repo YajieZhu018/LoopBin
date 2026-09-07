@@ -1,0 +1,15 @@
+Pairwise Wilcoxon rank-sum tests on P2LL scores
+============================================================
+
+active dot vs active domain | n1=2158.0 n2=4012.0 | stat=7.810211 | p=5.709252e-15
+lonely dot vs lonely domain | n1=3826.0 n2=4107.0 | stat=17.378473 | p=1.201087e-67
+repressive domain vs repressive dot | n1=2999.0 n2=2249.0 | stat=-13.796590 | p=2.671953e-43
+active dot vs repressive dot | n1=2158.0 n2=2249.0 | stat=-1.135751 | p=2.560606e-01
+0: active dot
+1: active domain
+2: lonely dot
+3: repressive domain
+4: lonely domain
+5: repressive dot
+
+### this labels are reranked in our manuscript by Akis.

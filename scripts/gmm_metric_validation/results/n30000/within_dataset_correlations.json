@@ -1,0 +1,87 @@
+{
+  "min_weight": {
+    "mean_rho": 0.33296121802550555,
+    "median_rho": 0.7327781623080706,
+    "n_datasets_valid": 9,
+    "n_datasets_total": 9,
+    "per_dataset_rho": {
+      "mild_k4.npz": 0.8632258720256917,
+      "mild_k6.npz": 0.7327781623080706,
+      "mild_k10.npz": 0.7333333333333332,
+      "moderate_k4.npz": -0.3719581343246535,
+      "moderate_k6.npz": 0.7781190959104827,
+      "moderate_k10.npz": 0.8181818181818182,
+      "severe_k4.npz": -0.08430191247791963,
+      "severe_k6.npz": -0.5515151515151515,
+      "severe_k10.npz": 0.07878787878787878
+    }
+  },
+  "separation": {
+    "mean_rho": 0.015378578583903402,
+    "median_rho": -0.01818181818181818,
+    "n_datasets_valid": 9,
+    "n_datasets_total": 9,
+    "per_dataset_rho": {
+      "mild_k4.npz": 0.09726488698881033,
+      "mild_k6.npz": 0.9245067028843873,
+      "mild_k10.npz": 0.9636363636363635,
+      "moderate_k4.npz": -0.28659069365997897,
+      "moderate_k6.npz": -0.7538028741632801,
+      "moderate_k10.npz": -0.8303030303030302,
+      "severe_k4.npz": 0.08430191247791963,
+      "severe_k6.npz": -0.01818181818181818,
+      "severe_k10.npz": -0.04242424242424241
+    }
+  },
+  "cov_health": {
+    "mean_rho": -0.29584198235463177,
+    "median_rho": -0.5492597222850211,
+    "n_datasets_valid": 4,
+    "n_datasets_total": 9,
+    "per_dataset_rho": {
+      "mild_k4.npz": null,
+      "mild_k6.npz": null,
+      "mild_k10.npz": -0.7939393939393938,
+      "moderate_k4.npz": null,
+      "moderate_k6.npz": -0.5106406566912542,
+      "moderate_k10.npz": 0.709090909090909,
+      "severe_k4.npz": null,
+      "severe_k6.npz": null,
+      "severe_k10.npz": -0.5878787878787878
+    }
+  },
+  "assignment_confidence": {
+    "mean_rho": -0.12170130452361051,
+    "median_rho": -0.15853658536585366,
+    "n_datasets_valid": 9,
+    "n_datasets_total": 9,
+    "per_dataset_rho": {
+      "mild_k4.npz": -0.15853658536585366,
+      "mild_k6.npz": 0.34369241240997994,
+      "mild_k10.npz": -0.6484848484848483,
+      "moderate_k4.npz": -0.4695209236557102,
+      "moderate_k6.npz": 0.7659609850368815,
+      "moderate_k10.npz": -0.38181818181818183,
+      "severe_k4.npz": -0.11024096247112566,
+      "severe_k6.npz": 0.18787878787878787,
+      "severe_k10.npz": -0.6242424242424242
+    }
+  },
+  "log_likelihood": {
+    "mean_rho": -0.1327099600821953,
+    "median_rho": -0.10975609756097562,
+    "n_datasets_valid": 9,
+    "n_datasets_total": 9,
+    "per_dataset_rho": {
+      "mild_k4.npz": -0.10975609756097562,
+      "mild_k6.npz": -0.9388409949470162,
+      "mild_k10.npz": -0.41818181818181815,
+      "moderate_k4.npz": -0.26299817167834066,
+      "moderate_k6.npz": -0.7051704306688749,
+      "moderate_k10.npz": 0.9030303030303028,
+      "severe_k4.npz": -0.08671485497545911,
+      "severe_k6.npz": 0.41818181818181815,
+      "severe_k10.npz": 0.006060606060606061
+    }
+  }
+}

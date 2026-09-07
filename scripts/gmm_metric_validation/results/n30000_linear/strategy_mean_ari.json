@@ -1,0 +1,12 @@
+{
+  "oracle_ari": 0.14144222435835674,
+  "naive_loglik_ari": 0.12740625813570794,
+  "random_pick_ari": 0.13005733501440064,
+  "separation_only_ari": 0.12307252485690766,
+  "confidence_only_ari": 0.11942468564143408,
+  "loglik_only_ari": 0.12740625813570794,
+  "separation_confidence_ari": 0.121132838447145,
+  "separation_loglik_ari": 0.12272725372758558,
+  "confidence_loglik_ari": 0.1257249595598591,
+  "equal_current_default_ari": 0.12179941905190482
+}

@@ -10,6 +10,8 @@ data = pd.read_csv(input_file, sep='\t', header=None)
 # get the number of clusters
 cluster1 = np.sort(data[6].unique())
 cluster2 = np.sort(data[7].unique())
+#cluster1 = np.array([0,1,5,3,2,4])
+#cluster2= np.array([2,3,5,1,0,4,6])
 # create a matrix of (cluster1, cluster2) to store the intersection number of each pair of clusters
 m = np.zeros((len(cluster1), len(cluster2)))
 # fill the matrix

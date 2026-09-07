@@ -1,0 +1,16 @@
+dataset             alive  eff_rank  within|r|  global|r|
+mild_k10             5/10      2.10      0.479      0.513
+mild_k4              4/10      1.84      0.618      0.515
+mild_k6              4/10      2.02      0.403      0.487
+moderate_k10         5/10      3.19      0.351      0.343
+moderate_k4          4/10      1.93      0.314      0.360
+moderate_k6          6/10      3.64      0.273      0.277
+severe_k10           5/10      2.36      0.523      0.523
+severe_k4            3/10      1.48      0.088      0.105
+severe_k6            4/10      2.08      0.157      0.166
+
+datasets:                9
+mean alive dims:         4.44 / 10
+mean effective_rank:     2.29
+mean within-cluster |r|: 0.356  (9/9 datasets defined)
+mean global |r|:         0.365

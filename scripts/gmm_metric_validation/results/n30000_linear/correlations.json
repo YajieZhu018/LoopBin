@@ -1,0 +1,22 @@
+{
+  "min_weight": {
+    "spearman_rho": -0.10466485024014158,
+    "p_value": 0.32621910897619166
+  },
+  "separation": {
+    "spearman_rho": 0.8375739816582498,
+    "p_value": 7.925576252320474e-25
+  },
+  "cov_health": {
+    "spearman_rho": 0.1931216713711334,
+    "p_value": 0.06819563050047195
+  },
+  "assignment_confidence": {
+    "spearman_rho": 0.7114493386869993,
+    "p_value": 3.886159853871811e-15
+  },
+  "log_likelihood": {
+    "spearman_rho": -0.37204382511236167,
+    "p_value": 0.0003053663581335298
+  }
+}

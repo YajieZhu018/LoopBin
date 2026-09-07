@@ -1,0 +1,83 @@
+[
+  {
+    "filename": "mild_k4.npz",
+    "config_name": "mild",
+    "n_centroid": 4,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 0
+  },
+  {
+    "filename": "mild_k6.npz",
+    "config_name": "mild",
+    "n_centroid": 6,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 1
+  },
+  {
+    "filename": "mild_k10.npz",
+    "config_name": "mild",
+    "n_centroid": 10,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 2
+  },
+  {
+    "filename": "moderate_k4.npz",
+    "config_name": "moderate",
+    "n_centroid": 4,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 3
+  },
+  {
+    "filename": "moderate_k6.npz",
+    "config_name": "moderate",
+    "n_centroid": 6,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 4
+  },
+  {
+    "filename": "moderate_k10.npz",
+    "config_name": "moderate",
+    "n_centroid": 10,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 5
+  },
+  {
+    "filename": "severe_k4.npz",
+    "config_name": "severe",
+    "n_centroid": 4,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 6
+  },
+  {
+    "filename": "severe_k6.npz",
+    "config_name": "severe",
+    "n_centroid": 6,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 7
+  },
+  {
+    "filename": "severe_k10.npz",
+    "config_name": "severe",
+    "n_centroid": 10,
+    "n_samples": 30000,
+    "raw_dim": 384,
+    "latent_factor_dim": 10,
+    "seed": 8
+  }
+]
