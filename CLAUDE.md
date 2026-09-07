@@ -10,9 +10,8 @@ latent representation of Micro-C interaction submatrices and Cut&Tag/ChIP-seq pr
 to assign each loop to a cluster. Comparing cluster composition across conditions (e.g. control vs.
 cohesin-degron) reveals how loop types shift with cellular context.
 
-This is a research pipeline, not a library/application: `test_python.py` is a placeholder, not a real
-test suite. Correctness is judged by whether the pipeline runs end-to-end and produces sensible
-clusters/plots, not by unit tests.
+This is a research pipeline, not a library/application: there is no test suite. Correctness is judged
+by whether the pipeline runs end-to-end and produces sensible clusters/plots, not by unit tests.
 
 LoopBin is packaged as an installable Python package (`loopbin/`, with `setup.py`/`pyproject.toml`
 providing a `loopbin` console script) rather than a loose collection of scripts.
