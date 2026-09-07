@@ -1,4 +1,4 @@
-"""Back-compat shim: `python main.py -f ...` still works -> delegates to the loopbin CLI."""
+"""Back-compat shim: `python main.py <command> ...` still works -> delegates to the loopbin CLI."""
 from loopbin.cli import cli
 
 if __name__ == "__main__":

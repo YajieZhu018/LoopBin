@@ -23,6 +23,20 @@ pip install -e .                          # installs the `loopbin` CLI
 `loopbin --help` lists the commands; `loopbin <command> --help` shows a command's flags.
 (For back-compatibility, `python main.py <command> …` also works.)
 
+**Alternative: `uv`-managed venv, training only.** `requirements.txt` is a leaner, pinned, verified-working
+env for the model/training stack (`pretrain`/`train`/`cluster`/`merge`/`calculateg`/`nmi`) on Python 3.9 —
+faster to set up than conda, but it does **not** yet cover the raw `preprocess`/`process` stages
+(`cooler`, `cooltools`, `bioframe`, `pysam`, `pytables`, `ucsc-bigwigaverageoverbed` — see
+`requirements.txt`'s header). Use the conda env above if you need those.
+
+```bash
+module load uv   # or: pip install uv
+uv venv --python 3.9 .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+pip install -e . --no-deps   # installs the `loopbin` CLI without re-resolving deps
+```
+
 ## Inputs
 
 | Input | What |
@@ -69,9 +83,26 @@ loopbin merge -k 2,3 -d out/merged_log_data.npy -u merged/ -p CTCF,H3K27ac,H3K27
 | `process` | loops+mcool+marks → npy | `-l -c -g -p -r -u -res` |
 | `normalize` | merge + co-normalize conditions | `-e -u` |
 | `pretrain` | pretrain the autoencoder | `-d -u -s -t` |
-| `train` | train VaDE + cluster | `-num -d -ep -pre -if_pre -u -p -s -t` |
+| `train` | train VaDE + cluster | `-num -d -ep -pre -if_pre -u -p -s -t -mw -gmm_prior -pi_mode -pi_em_every -pi_em_warmup -pi_em_rho -pi_floor -pi_floor_hold -pi_floor_ramp_end -ckpt_epochs` |
 | `cluster` | predict with a trained model | `-d -m -u -p` |
 | `merge` | merge small clusters | `-d -u -k -p` |
+
+## The GMM prior and `pi_mode`
+
+`train`'s GMM prior — the mixture the VaDE latent space is regularized toward — is normally re-selected
+from the pretrained AE's latent space each run (`select_balanced_gmm`, scored on separation/confidence/
+fit quality rather than sklearn's default best-log-likelihood pick; `-mw` reweights those three metrics).
+Pin a specific fitted GMM instead with `-gmm_prior <path/to/gmm_prior.pkl>` for reproducibility across
+machines (GPU/CPU numerical differences can select a different candidate at the same seed).
+
+`-pi_mode` controls how the prior's mixing weights (`theta_p`) are handled during training —
+`uniform_fixed` (default, frozen at `1/k`), `gmm_fixed` (frozen at the GMM's fitted weights), `em`
+(periodic EM M-step, tuned by `-pi_em_every/-pi_em_warmup/-pi_em_rho` and floored via
+`-pi_floor/-pi_floor_hold/-pi_floor_ramp_end` to keep a shrinking component recoverable early on), or
+`gradient` (trained like any other weight). `gradient`/`gmm_fixed`/`em` are all prone to a
+rich-get-richer cluster collapse; `uniform_fixed` is the one that's held up in testing — see
+`scripts/gmm_metric_validation/run_report.md` for the comparison. `-ckpt_epochs` saves extra mid-training
+checkpoints (e.g. around where `em`'s floor releases) rather than only the final epoch.
 
 ## Reproducibility — `-s/--seed`, `-t/--threads`
 
