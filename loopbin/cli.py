@@ -251,8 +251,15 @@ def cluster_data_inner_func(data, vade, loop_path, output_path, list_epic):
     prob = vade.gmm(z_mean)
     # get the cluster of the data
     cluster = np.argmax(prob,axis=1)
-    # remove non-existing cluster 
+    # remove non-existing cluster
     labels = np.unique(cluster)
+    n_centroid = vade.gmm.n_centroid
+    dropped = sorted(set(range(n_centroid)) - set(labels.tolist()))
+    if dropped:
+        shift_map = {int(new): int(orig) for new, orig in enumerate(labels)}
+        print(f"WARNING: {len(dropped)} of {n_centroid} GMM component(s) captured 0 loops "
+              f"and were dropped: {dropped}. Remaining clusters were renumbered "
+              f"0..{len(labels) - 1}; saved label -> original GMM component: {shift_map}")
     # Convert labels to TensorFlow tensor
     labels = tf.convert_to_tensor(np.unique(cluster), dtype=tf.int32)
     # Use TensorFlow indexing

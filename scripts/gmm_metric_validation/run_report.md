@@ -745,3 +745,71 @@ structurally-equivalent priors you train changes the result about as much as jus
 changing the seed does. Independent, behavioral confirmation (not just static
 component-matching) that separation-only selection is picking sound, interchangeable
 priors, and that the 2026-08-31 collapse was entirely a `pi_mode` problem.
+
+## 2026-09-07: a component can go permanently empty even under uniform_fixed — the GMM prior is fully frozen after init
+
+Surfaced while verifying the `loopbin/` package integration end-to-end: job `15773343`
+(`loopbin/jobs/experiments/06_train_vade_k6_k7.sbatch`, `-mw 1,0,0`, `pi_mode=uniform_fixed`,
+seed 48, fresh GMM candidate selection per k — the pinned rs=73/rs=13 10-component
+priors above don't apply at k=6/7) trained cleanly (500 epochs, stable converging loss,
+exit 0) but `all_clusters.pdf` showed only 5 clusters for the k=6 run and 6 for the
+k=7 run.
+
+**Not a training failure or a plotting bug.** `loopbin/cli.py`'s `cluster_data_inner_func`
+takes `cluster = argmax(gmm(z_mean), axis=1)` and intentionally drops any GMM component
+that never wins the argmax for a single loop, renumbering what's left to stay
+contiguous (`# remove non-existing cluster` — deliberate, to avoid confusing users with
+gapped cluster IDs). Checking the *raw*, pre-drop argmax counts over all requested
+components confirmed one component captured exactly 0 of 44,828 loops in each run:
+component 4 of 6 (k=6) and component 0 of 7 (k=7).
+
+**Mechanism: under every `pi_mode`, `u_p` and `lambda_p` (the GMM prior's per-component
+means/variances) are `trainable=False` — frozen at their `load_pretrained_weights`
+initialization for the entire run.** Verified empirically: the initial sklearn
+`GaussianMixture` fit (pickled to `gmm_models/`) and the final trained model's
+`vade.gmm.u_p`/`lambda_p` are bit-identical — L2 movement is `0.000` for every
+component in both the k=6 and k=7 runs. Under `uniform_fixed`, `theta_p` is frozen too
+(`GMM.build`'s `trainable=self.trainable_theta`, only `True` for `pi_mode='gradient'`).
+So under `uniform_fixed` the entire GMM prior is static from the moment training starts
+— only the encoder adapts, learning where to place each loop's `z` to jointly minimize
+reconstruction loss and KL-to-this-fixed-prior.
+
+The two dead components share a striking profile in their *initial* candidate fit —
+before VaDE training even began:
+
+| | weight | mean norm | covariance (diag mean) | rank among its siblings |
+|---|---|---|---|---|
+| k=6, component 4 | 0.2617 | 1.28 | 0.0334 | **largest** weight, **smallest** norm, **smallest** (tightest) covariance of all 6 |
+| k=7, component 0 | 0.262 | 1.28 | 0.0335 | **largest** weight, **smallest** norm, **smallest** (tightest) covariance of all 7 |
+
+In both runs — independently fit, different k, same `-mw 1,0,0` separation-only
+selection — the doomed component is the single largest-weight candidate, but also by
+far the tightest (3-30x smaller variance than every sibling) and closest to the latent
+origin. That is exactly the "one tight component plus near-empty others" shape
+`select_balanced_gmm` exists to steer away from (its own docstring's phrase for what
+sklearn's default best-log-likelihood pick tends to produce) — except `-mw 1,0,0`
+disables everything but the separation metric, so a component can still be tight enough
+to score well on separation alone while being a bad target once the prior can no longer
+move to accommodate it. Likely explanation: a narrow, fixed-position component only
+earns KL benefit for the encoder in a very precise region of latent space; here, it was
+evidently cheaper for the encoder to never place any of 44,828 loops that precisely and
+let the broader neighboring components absorb everything instead.
+
+This also explains a follow-on question about cross-condition consistency: since the
+trained model (encoder + fully frozen prior) is identical every time it's applied,
+predicting on different data subsets (e.g. `loopbin cluster` run separately per
+condition) should keep routing away from the *same* dead component rather than a
+different one each time — consistent with the user's own testing, where the same
+cluster is missing between the control and degron subsets. The renumbering is
+per-invocation, though, so the saved cluster ID for a given loop no longer necessarily
+equals its GMM component index in `gmm_models/`'s saved `theta_p`/`u_p`/`lambda_p` —
+harmless for the common case (nobody maps cluster IDs back to raw component index) but
+worth knowing before ever doing so.
+
+**Action taken:** `cluster_data_inner_func` now logs a warning whenever this happens —
+which raw component(s) were dropped and the resulting saved-label -> original-component
+map — instead of silently renumbering. The renumbering behavior itself is intentional
+(kept as-is, not reverted) so cluster IDs stay contiguous for users. Not yet
+investigated: whether this "tight, near-origin, high-weight" candidate shape is
+specific to `-mw 1,0,0` at these untested k values (6, 7 — the validated k=10 runs
+above never hit this), or would also show up with the combined metric weighting.
