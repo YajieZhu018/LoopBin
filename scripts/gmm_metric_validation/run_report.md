@@ -813,3 +813,64 @@ map — instead of silently renumbering. The renumbering behavior itself is inte
 investigated: whether this "tight, near-origin, high-weight" candidate shape is
 specific to `-mw 1,0,0` at these untested k values (6, 7 — the validated k=10 runs
 above never hit this), or would also show up with the combined metric weighting.
+
+## 2026-09-07: trainable u_p/lambda_p reproducibly collapses to one cluster — confirms why they're frozen
+
+Follow-up to the entry above. The user recalled that an earlier test with `u_p`/
+`lambda_p` (the GMM prior's per-component means/variances) set trainable, instead of
+the current `trainable=False` default, produced "one big cluster" -- asked to confirm
+or refute this empirically rather than take it on memory alone.
+
+Added a diagnostic-only `trainable_prior` kwarg to `GMM`/`VADE` (default `False`, not
+wired to any CLI flag -- see `vade_model.py`) and ran a controlled A/B:
+`scripts/gmm_metric_validation/07_test_trainable_prior.py`
+(`loopbin/jobs/experiments/07_test_trainable_prior.sbatch`, job `15775433`). Both arms
+share everything except `trainable_prior` -- same pinned k=6 GMM prior (the
+`pi_uniform_run1` pickle from the 06_train_vade_k6_k7.sbatch verification run above),
+same pretrained AE, same seed (48), same 300 epochs, `pi_mode` fixed at
+`uniform_fixed` (`theta_p` frozen either way) -- isolating prior-parameter
+trainability as the only variable. A callback recorded the raw (pre-drop) argmax
+cluster distribution every 20 epochs.
+
+**Result: confirmed.** `frozen` (current default) stays stable the whole run -- 5/6
+components populated throughout, `max_frac` oscillating harmlessly in 0.26-0.42 (same
+dead component 4 as the original verification run, expected). `trainable` thrashes --
+briefly *healthier* than frozen at epoch 20 (6/6 populated, vs frozen's 5/6) -- then
+destabilizes, partially recovers twice (epochs 80 and 160-180), and by epoch 200 has
+fully collapsed: **all 44,828 loops in a single cluster**, where it stays through epoch
+300.
+
+| epoch | frozen: populated / max_frac | trainable: populated / max_frac |
+|---|---|---|
+| 0 (init, pre-training) | 1/6 / 1.000 | 1/6 / 1.000 (trivial artifact, both arms -- see below) |
+| 20 | 5/6 / 0.422 | 6/6 / 0.511 |
+| 60 | 5/6 / 0.321 | 2/6 / 0.881 |
+| 100 | 5/6 / 0.294 | 6/6 / 0.649 |
+| 140 | 5/6 / 0.260 | 5/6 / 0.951 |
+| 180 | 5/6 / 0.261 | 4/6 / 0.437 |
+| 200 | 5/6 / 0.273 | **1/6 / 1.000** |
+| 300 | 5/6 / 0.283 | 1/6 / 1.000 |
+
+Full per-checkpoint record (both arms, every 20 epochs): `results/trainable_prior_test/results.json`.
+
+Two things worth flagging beyond the headline result:
+
+1. **Epoch 0 is a trivial artifact in both arms**, not evidence either configuration
+   starts collapsed. `_record(0)` runs right after `load_pretrained_weights`, before any
+   training step -- VADE's `z_mean`/`z_log_var` projection heads are freshly initialized
+   (the plain AE has no such heads to copy weights from), so they don't yet land in the
+   region the pinned GMM prior was fit against. Once training starts, `frozen`
+   differentiates into its stable 5-cluster split within 20 epochs.
+2. **`trainable`'s collapse isn't a clean monotonic slide** into one cluster -- it
+   oscillates for ~180 epochs (looking better than `frozen` at epoch 20, then worse,
+   then recovering twice) before locking in. Once collapsed (epoch 200 on), *which* raw
+   component holds everyone keeps changing (component 1 at epoch 200-220, then 0, then
+   3, then 2 by epoch 300) even though `max_frac` stays pinned at exactly 1.000 --
+   consistent with the encoder itself having collapsed to producing near-identical
+   `z_mean` for every input, so which component "wins" becomes hypersensitive to
+   whatever small step `u_p`/`lambda_p` (still moving) took that epoch.
+
+**Conclusion: freezing `u_p`/`lambda_p` (current default, every `pi_mode`) is the right
+call, not an arbitrary restriction.** Letting the GMM prior's means/variances train
+jointly with the encoder reproduces the one-big-cluster failure mode the user recalled.
+`trainable_prior` stays diagnostic-only -- no CLI flag planned.

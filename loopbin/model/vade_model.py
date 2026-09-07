@@ -225,10 +225,15 @@ class GMM(Layer):
     """
     a GMM model to learn the mean, variance and p(c|z) of the latent space
     """
-    def __init__(self, n_centroid, trainable_theta=False, **kwargs):
+    def __init__(self, n_centroid, trainable_theta=False, trainable_prior=False, **kwargs):
         super(GMM, self).__init__(**kwargs)
         self.n_centroid = n_centroid
         self.trainable_theta = trainable_theta
+        # Diagnostic-only knob (not wired to any CLI flag): lets u_p/lambda_p move under
+        # gradient descent instead of staying frozen at their load_pretrained_weights
+        # init. See run_report.md's 2026-09-07 entry (trainable u_p/lambda_p) for why
+        # this is opt-in, not default: it reproducibly collapses to one cluster.
+        self.trainable_prior = trainable_prior
 
     def build(self, input_shape):
         batch_size, latent_dim = input_shape[0], input_shape[1]
@@ -241,9 +246,9 @@ class GMM(Layer):
                                         constraint=(keras.constraints.NonNeg()
                                                     if self.trainable_theta else None))
         self.u_p = self.add_weight(name='u_p', shape=(latent_dim, self.n_centroid),
-                                    initializer='zeros', dtype=tf.float32, trainable=False)
+                                    initializer='zeros', dtype=tf.float32, trainable=self.trainable_prior)
         self.lambda_p = self.add_weight(name='lambda_p', shape=(latent_dim, self.n_centroid),
-                                         initializer='ones', dtype=tf.float32, trainable=False)
+                                         initializer='ones', dtype=tf.float32, trainable=self.trainable_prior)
         super(GMM, self).build(input_shape)
 
     def theta(self):
@@ -282,8 +287,9 @@ class GMM(Layer):
 
 
 class VADE(keras.Model):
-    def __init__(self, original_size, n_centroid, trainable_theta=False, loss_weights=None,
-                marginal_entropy_beta=0.0, marginal_kl_beta=0.0, marginal_kl_target=None, **kwargs):
+    def __init__(self, original_size, n_centroid, trainable_theta=False, trainable_prior=False,
+                loss_weights=None, marginal_entropy_beta=0.0, marginal_kl_beta=0.0,
+                marginal_kl_target=None, **kwargs):
         super().__init__(**kwargs)
         self.original_size = original_size
         self.n_centroid = n_centroid
@@ -294,7 +300,7 @@ class VADE(keras.Model):
         self.marginal_kl_target = (tf.constant(marginal_kl_target, dtype=tf.float32) if marginal_kl_target is not None else None)
         # Phase 2: optional per-feature BCE weights (None => unmodified loss, byte-identical baseline)
         self.feature_weights = None if loss_weights is None else tf.constant(loss_weights, dtype=tf.float32)
-        self.gmm = GMM(n_centroid, trainable_theta=trainable_theta)
+        self.gmm = GMM(n_centroid, trainable_theta=trainable_theta, trainable_prior=trainable_prior)
         self.encoder = self.build_encoder()
         self.decoder = self.build_decoder()
         self.total_loss_tracker = keras.metrics.Mean(name='total_loss')
