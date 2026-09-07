@@ -13,7 +13,7 @@ they shift between cellular conditions.
 LoopBin is an installable package that provides a `loopbin` command.
 
 ```bash
-git clone https://github.com/astudentfromsustech/LoopBin
+git clone https://github.com/YajieZhu018/LoopBin
 cd LoopBin
 conda env create --file loopbin.yml      # the `loopbin` env (Python 3.7, TensorFlow 2.5)
 conda activate loopbin
@@ -23,11 +23,16 @@ pip install -e .                          # installs the `loopbin` CLI
 `loopbin --help` lists the commands; `loopbin <command> --help` shows a command's flags.
 (For back-compatibility, `python main.py <command> …` also works.)
 
-**Alternative: `uv`-managed venv, training only.** `requirements.txt` is a leaner, pinned, verified-working
-env for the model/training stack (`pretrain`/`train`/`cluster`/`merge`/`calculateg`/`nmi`) on Python 3.9 —
-faster to set up than conda, but it does **not** yet cover the raw `preprocess`/`process` stages
-(`cooler`, `cooltools`, `bioframe`, `pysam`, `pytables`, `ucsc-bigwigaverageoverbed` — see
-`requirements.txt`'s header). Use the conda env above if you need those.
+**Alternative: `uv`-managed venv.** `requirements.txt` is a leaner, pinned, verified-working env on
+Python 3.9 — faster to set up than conda, and covers everything except `preprocess`
+(`normalize`/`pretrain`/`train`/`cluster`/`merge`/`calculateg`/`nmi`, plus `process` via `cooler`).
+Package versions are kept in sync with `loopbin.yml`'s (see its header for why `cooler` is pinned to
+`0.9.3` rather than latest). What it can't do on its own: `preprocess` needs the `bigWigAverageOverBed`
+binary specifically, which has no PyPI wheel — the conda env above gets it automatically via bioconda,
+but if you're on the `uv` venv, download it yourself from UCSC's tools directory,
+<https://hgdownload.soe.ucsc.edu/admin/exe/> (e.g. `linux.x86_64/bigWigAverageOverBed` for Linux,
+`macOSX.x86_64/bigWigAverageOverBed` for macOS/Intel or `macOSX.arm64/bigWigAverageOverBed` for
+Apple Silicon), then `chmod +x` it and put it on your `PATH`.
 
 ```bash
 module load uv   # or: pip install uv
@@ -35,6 +40,9 @@ uv venv --python 3.9 .venv
 source .venv/bin/activate
 uv pip install -r requirements.txt
 pip install -e . --no-deps   # installs the `loopbin` CLI without re-resolving deps
+# preprocess only: fetch bigWigAverageOverBed for your platform and put it on PATH, e.g.
+#   curl -o bigWigAverageOverBed https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bigWigAverageOverBed
+#   chmod +x bigWigAverageOverBed && mv bigWigAverageOverBed ~/.local/bin/   # or anywhere on $PATH
 ```
 
 ## Inputs
